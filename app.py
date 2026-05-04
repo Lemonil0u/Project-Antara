@@ -16,6 +16,7 @@ Cara menjalankan:
 
 import streamlit as st
 from engine.optimizer import SmartRouteOptimizer
+from engine.data_source import MultiModalDataSource
 from models import SearchCriteria
 
 # ── Konfigurasi halaman ───────────────────────────────────────────────────────
@@ -26,10 +27,18 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Inisialisasi optimizer (pakai DummyData sampai scraper jadi) ──────────────
+# ── Inisialisasi optimizer dengan scraper nyata ───────────────────────────────
+# MultiModalDataSource menggabungkan TrainScraper + PlaneScraper + BusScraper.
+# Scraper yang belum diimplementasi di-skip otomatis tanpa crash.
+# Untuk development kereta saja: MultiModalDataSource(enabled_modes=["train"])
 @st.cache_resource
 def get_optimizer():
-    return SmartRouteOptimizer()
+    data_source = MultiModalDataSource(
+        headless=True,                          # False = browser kelihatan (debug)
+        timeout=30,                             # detik per request
+        enabled_modes=["train"],
+    )
+    return SmartRouteOptimizer(data_source=data_source)
 
 optimizer = get_optimizer()
 
