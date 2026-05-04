@@ -1,20 +1,23 @@
 """
 engine/optimizer.py - ANTARA Project
 =====================================
-Smart Route Optimizer + Dummy Data Generator
+Smart Route Optimizer
 
 Tanggung jawab modul ini:
-  1. DummyDataGenerator  → menghasilkan TransportSegment palsu yang realistis
-                            untuk rute langsung dan rute via kota transit
-  2. SmartRouteOptimizer → menerima SearchCriteria, memanggil generator (atau
-                            scraper asli nanti), menggabungkan segmen menjadi
-                            RouteCombo (single & multi-modal), menghitung semua
-                            metrik, memberi flag "cheapest" / "fastest", dan
-                            mengembalikan OptimizerResult yang siap ditampilkan.
+  1. DummyDataGenerator  → menghasilkan TransportSegment palsu untuk keperluan
+                            testing / unit test. JANGAN dipakai di production.
+  2. SmartRouteOptimizer → menerima SearchCriteria, memanggil data_source
+                            (MultiModalDataSource berisi scraper nyata), menggabungkan
+                            segmen menjadi RouteCombo (single & multi-modal),
+                            menghitung semua metrik, memberi flag "cheapest" / "fastest",
+                            dan mengembalikan OptimizerResult yang siap ditampilkan.
 
-Saat scraper sudah jadi, cukup ganti pemanggilan DummyDataGenerator dengan
-instance scraper yang punya interface yang sama:
-    def get_segments(origin, destination, date, passengers) -> List[TransportSegment]
+Data source untuk production:
+    from engine.data_source import MultiModalDataSource
+    optimizer = SmartRouteOptimizer(data_source=MultiModalDataSource())
+
+Data source untuk testing:
+    optimizer = SmartRouteOptimizer(data_source=DummyDataGenerator(seed=42))
 """
 
 import random
@@ -440,12 +443,21 @@ class SmartRouteOptimizer:
     ):
         """
         Args:
-            data_source      : Instance yang punya get_segments(). Default DummyDataGenerator.
+            data_source      : Instance yang punya get_segments(). 
+                               Gunakan MultiModalDataSource untuk data nyata,
+                               atau DummyDataGenerator untuk testing/development.
+                               Jika None, akan raise error — data_source wajib diisi.
             max_transits     : Maksimum kota transit per rute (default 2 = maks 3 kaki).
             min_transfer_wait: Minimum menit jeda antar segmen agar bisa naik.
             max_transfer_wait: Jika jeda melebihi ini, anggap tidak praktis.
         """
-        self.data_source      = data_source or DummyDataGenerator()
+        if data_source is None:
+            raise ValueError(
+                "data_source wajib diisi. "
+                "Gunakan MultiModalDataSource() untuk data nyata, "
+                "atau DummyDataGenerator() untuk testing."
+            )
+        self.data_source      = data_source
         self.max_transits     = max_transits
         self.min_transfer_wait = min_transfer_wait
         self.max_transfer_wait = max_transfer_wait
