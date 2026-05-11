@@ -1,37 +1,87 @@
 """
-models.py - ANTARA Project
+models.py — ANTARA Project
+==========================
 Definisi dataclass untuk semua entitas utama sistem.
+
+Hierarki konseptual:
+    LocalSegment       → satu kaki perjalanan lokal (first-mile / last-mile)
+                         e.g. Gojek dari rumah ke Stasiun Gambir.
+                         CATATAN: saat ini hanya stub — belum di-scrape nyata.
+    TransportSegment   → satu kaki perjalanan antar-kota
+                         (pesawat / kereta / bus). Hasil dari scraper.
+    RouteCombo         → gabungan 1+ TransportSegment (opsional dibungkus
+                         LocalSegment di awal/akhir).
+    OptimizerResult    → hasil akhir SmartRouteOptimizer untuk 1 pencarian.
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Optional
 
 
-# ─────────────────────────────────────────────
-#  TransportSegment  (satu "kaki" perjalanan)
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+#  LocalSegment  — first-mile / last-mile (STUB)
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass
+class LocalSegment:
+    """
+    Kaki perjalanan lokal (di dalam kota): rumah → stasiun, bandara → hotel, dll.
+
+    STATUS: Stub. Belum di-scrape nyata. Dihasilkan oleh placeholder
+    LocalSegmentGenerator di engine.local_data agar arsitektur first-/last-mile
+    sudah tertanam dan siap diisi data nyata nanti.
+    """
+    id: str
+    mode: str                        # "ride_hail" | "taxi" | "transit" | "walk"
+    provider: str                    # "Gojek" | "Grab" | "TransJakarta" | "Walk"
+    origin: str                      # Titik awal lokal (alamat / nama tempat)
+    destination: str                 # Titik akhir lokal (biasanya stasiun/bandara)
+    duration_minutes: int            # Estimasi durasi
+    price: float                     # Estimasi harga (IDR)
+
+    @property
+    def duration_str(self) -> str:
+        h, m = divmod(self.duration_minutes, 60)
+        return f"{h}j {m}m" if h else f"{m}m"
+
+    @property
+    def price_str(self) -> str:
+        return f"Rp {self.price:,.0f}"
+
+    @property
+    def mode_icon(self) -> str:
+        return {
+            "ride_hail": "🛵",
+            "taxi":      "🚖",
+            "transit":   "🚌",
+            "walk":      "🚶",
+        }.get(self.mode, "🚗")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  TransportSegment  — satu "kaki" perjalanan antar-kota
+# ─────────────────────────────────────────────────────────────────────────────
 @dataclass
 class TransportSegment:
     """
-    Merepresentasikan satu segmen perjalanan — bisa pesawat, kereta, atau bus.
-    Setiap RouteCombo tersusun dari 1 atau lebih TransportSegment.
+    Satu segmen perjalanan utama — pesawat, kereta, atau bus.
+    Setiap RouteCombo tersusun dari 1+ TransportSegment.
     """
-    id: str                          # e.g. "SEG-001"
+    id: str
     mode: str                        # "flight" | "train" | "bus"
-    provider: str                    # Nama maskapai / operator kereta / bus
+    provider: str                    # Nama maskapai / operator
     provider_code: Optional[str]     # e.g. "GA", "SJ", "KA"
-    origin: str                      # Kota asal segmen ini
-    destination: str                 # Kota tujuan segmen ini
-    departure_time: datetime         # Waktu berangkat
-    arrival_time: datetime           # Waktu tiba
-    duration_minutes: int            # Durasi (menit)
-    price: float                     # Harga per penumpang (IDR)
-    seat_class: Optional[str]        # "Economy" | "Business" | "Executive"
-    available_seats: Optional[int]   # Kursi tersedia
-    rating: Optional[float]          # Rating provider (0-5)
+    origin: str
+    destination: str
+    departure_time: datetime
+    arrival_time: datetime
+    duration_minutes: int
+    price: float
+    seat_class: Optional[str]
+    available_seats: Optional[int]
+    rating: Optional[float]
 
-    # ── derived helpers ──────────────────────────────────────────────────────
+    # ── derived helpers ─────────────────────────────────────────────────────
     @property
     def duration_str(self) -> str:
         h, m = divmod(self.duration_minutes, 60)
@@ -54,25 +104,32 @@ class TransportSegment:
         )
 
 
-# ─────────────────────────────────────────────
-#  RouteCombo  (gabungan 1+ segmen = 1 rute)
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+#  RouteCombo  — 1 rute lengkap origin → destination
+# ─────────────────────────────────────────────────────────────────────────────
 @dataclass
 class RouteCombo:
     """
-    Merepresentasikan satu pilihan rute lengkap dari origin ke destination.
+    Satu pilihan rute lengkap dari origin ke destination.
     Bisa berupa rute langsung (1 segmen) atau multi-modal (2-3 segmen).
-    """
-    id: str                          # e.g. "COMBO-001"
-    segments: List[TransportSegment] # Urutan segmen (sorted by departure_time)
-    total_price: float               # Total harga semua segmen × penumpang
-    total_duration_minutes: int      # Total durasi termasuk waiting time
-    waiting_time_minutes: int        # Total waktu tunggu transfer
-    is_cheapest: bool = False        # Flag: apakah ini opsi termurah?
-    is_fastest: bool = False         # Flag: apakah ini opsi tercepat?
-    average_rating: Optional[float] = None  # Rata-rata rating semua segmen
 
-    # ── derived helpers ──────────────────────────────────────────────────────
+    first_mile dan last_mile bersifat opsional — hanya terisi jika user
+    mengaktifkan fitur first-/last-mile (saat ini stub).
+    """
+    id: str
+    segments: List[TransportSegment]
+    total_price: float
+    total_duration_minutes: int
+    waiting_time_minutes: int
+    is_cheapest: bool = False
+    is_fastest: bool = False
+    average_rating: Optional[float] = None
+
+    # First-/last-mile (opsional, default None)
+    first_mile: Optional[LocalSegment] = None
+    last_mile: Optional[LocalSegment] = None
+
+    # ── derived helpers ─────────────────────────────────────────────────────
     @property
     def is_multimodal(self) -> bool:
         return len(self.segments) > 1
@@ -114,6 +171,11 @@ class RouteCombo:
         return self.segments[-1].arrival_time
 
     @property
+    def has_local_legs(self) -> bool:
+        """Apakah rute ini punya first-mile atau last-mile?"""
+        return self.first_mile is not None or self.last_mile is not None
+
+    @property
     def badges(self) -> List[str]:
         b = []
         if self.is_cheapest:
@@ -122,6 +184,8 @@ class RouteCombo:
             b.append("⚡ Tercepat")
         if self.is_multimodal:
             b.append("🔀 Multi-Modal")
+        if self.has_local_legs:
+            b.append("🛵 Door-to-Door")
         return b
 
     def __repr__(self) -> str:
@@ -136,9 +200,9 @@ class RouteCombo:
         )
 
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 #  SearchCriteria
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 @dataclass
 class SearchCriteria:
     """Input dari user untuk satu sesi pencarian."""
@@ -149,7 +213,8 @@ class SearchCriteria:
     transport_modes: List[str] = field(
         default_factory=lambda: ["flight", "train", "bus"]
     )
-    max_results: int = 20        # Batas tampilan combo
+    max_results: int = 20
+    include_local_legs: bool = False   # First-/last-mile (stub)
 
     def __post_init__(self):
         self.origin = self.origin.strip().title()
@@ -162,15 +227,12 @@ class SearchCriteria:
                 raise ValueError(f"Mode tidak valid: {m}")
 
 
-# ─────────────────────────────────────────────
-#  OptimizerResult  (output akhir optimizer)
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+#  OptimizerResult — output akhir SmartRouteOptimizer
+# ─────────────────────────────────────────────────────────────────────────────
 @dataclass
 class OptimizerResult:
-    """
-    Hasil lengkap dari SmartRouteOptimizer untuk satu pencarian.
-    Berisi semua route combos yang sudah diurutkan dan di-flag.
-    """
+    """Hasil lengkap dari SmartRouteOptimizer untuk satu pencarian."""
     criteria: SearchCriteria
     all_combos: List[RouteCombo]
     cheapest: Optional[RouteCombo] = None
