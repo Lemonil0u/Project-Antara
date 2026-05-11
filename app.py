@@ -29,7 +29,7 @@ def get_optimizer():
     data_source = MultiModalDataSource(
         headless=True,
         timeout=30,
-        enabled_modes=["train"],
+        enabled_modes=["train", "flight"],  # FIXED: unlock flight mode (plane scraper ready)
     )
     return SmartRouteOptimizer(data_source=data_source)
 
@@ -68,6 +68,13 @@ def img_to_base64(path):
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode()
 
+def safe_image(path, **kwargs):
+    """Load image with graceful fallback if file missing."""
+    if os.path.exists(path):
+        st.image(path, **kwargs)
+    else:
+        st.warning(f"⚠️ Image not found: {path}")
+
 # =======================
 # BACKEND SEARCH
 # =======================
@@ -98,8 +105,12 @@ def _run_search(origin: str, destination: str, date_str: str, passengers: int):
 # =======================
 # LOAD CSS
 # =======================
-with open("style.css") as f:
-    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+css_path = "style.css"
+if os.path.exists(css_path):
+    with open(css_path) as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+else:
+    st.warning("⚠️ style.css not found — using default Streamlit styling")
 
 # =======================
 # HEADER
@@ -107,7 +118,7 @@ with open("style.css") as f:
 left, right = st.columns([6,1.8])
 
 with left:
-    st.image("assets/logo_antara.png", width=140)
+    safe_image("assets/logo_antara.png", width=140)
 
 with right:
 
@@ -137,7 +148,11 @@ with right:
                 </style>
                 """, unsafe_allow_html=True)
 
-                st.switch_page("pages/login.py")
+                # FIXED: check if pages/login.py exists before switch
+                if os.path.exists("pages/login.py"):
+                    st.switch_page("pages/login.py")
+                else:
+                    st.info("Login page not yet implemented")
 
         with col_signup:
             if st.button("Sign-up", use_container_width=True):
@@ -154,7 +169,11 @@ with right:
                 </style>
                 """, unsafe_allow_html=True)
 
-                st.switch_page("pages/signup.py")
+                # FIXED: check if pages/signup.py exists
+                if os.path.exists("pages/signup.py"):
+                    st.switch_page("pages/signup.py")
+                else:
+                    st.info("Sign-up page not yet implemented")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -182,7 +201,7 @@ c1, c2, c3 = st.columns([1,3,1])
 
 with c2:
 
-    st.image("assets/multi.png", use_container_width=True)
+    safe_image("assets/multi.png", use_container_width=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -234,8 +253,12 @@ with c2:
 
                 st.session_state.search_clicked = True
 
-                # pindah ke loading page
-                st.switch_page("pages/loading.py")
+                # FIXED: check if pages/loading.py exists
+                if os.path.exists("pages/loading.py"):
+                    st.switch_page("pages/loading.py")
+                else:
+                    # If loading page doesn't exist, show results inline
+                    pass
 
     with col_btn2:
         st.button("🚢 Transportasi", use_container_width=True)
@@ -249,7 +272,7 @@ st.markdown("<h3>Popular Routes</h3>", unsafe_allow_html=True)
 r1, r2, r3 = st.columns(3)
 
 def route_card(img, title, subtitle):
-    st.image(img, use_container_width=True)
+    safe_image(img, use_container_width=True)
     st.markdown(f"**{title}**")
     st.markdown(f"<small style='color:gray'>{subtitle}</small>", unsafe_allow_html=True)
 
@@ -348,10 +371,11 @@ if st.session_state.search_clicked:
         max_price = int(max(prices)) if prices else 5000000
 
         price_range = st.slider(
-            "",
+            "Price Range",
             0,
             max_price,
-            (0, max_price)
+            (0, max_price),
+            label_visibility="collapsed"
         )
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -505,6 +529,10 @@ if st.session_state.search_clicked:
                         st.session_state.selected_to = to_city
                         st.session_state.selected_date = str(date_input)
 
-                        st.switch_page("pages/result.py")
+                        # FIXED: check if pages/result.py exists
+                        if os.path.exists("pages/result.py"):
+                            st.switch_page("pages/result.py")
+                        else:
+                            st.success(f"✅ Route selected: {item['name']}")
 
                 st.markdown("<br>", unsafe_allow_html=True)

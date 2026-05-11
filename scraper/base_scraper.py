@@ -1,40 +1,63 @@
 """
 scraper/base_scraper.py — ANTARA Project
-==========================================
+========================================
 Abstract base class untuk semua scraper.
 
-WAJIB DIBACA sebelum implementasi plane_scraper, train_scraper, bus_scraper.
-
-Aturan:
+Kontrak:
   1. Setiap scraper HARUS mewarisi BaseScraper.
-  2. Method get_segments() WAJIB diimplementasi — ini kontrak dengan optimizer.
-  3. Method _scrape() adalah inti scraping, bebas diimplementasi sesuai target site.
-  4. Gunakan self.logger untuk logging, jangan pakai print().
-  5. Tangani exception di dalam kelas, jangan biarkan meledak ke caller.
+  2. Method _scrape() WAJIB diimplementasi — boleh sinkron atau wrapper async.
+  3. Attribut kelas MODE WAJIB diisi: "flight" | "train" | "bus".
+  4. Gunakan self.logger untuk logging (bukan print).
+  5. Jangan biarkan exception meledak ke caller — sudah ditangkap di get_segments().
+
+Catatan: project sudah pindah dari Selenium ke Playwright. Helper Selenium
+yang lama sudah dihapus. Subclass bertanggung jawab membuka browser-nya
+sendiri (lihat TrainScraper untuk contoh pola async Playwright).
 """
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import List, Optional
 
 from models import TransportSegment
+
+
+# ── Setup logger sekali di module level ─────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] %(name)s — %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 
 class BaseScraper(ABC):
     """
     Abstract base class untuk semua scraper ANTARA.
 
-    Usage:
-        class PlaneScraper(BaseScraper):
-            MODE = "flight"
-
+    Contoh implementasi minimal:
+        class MyScraper(BaseScraper):
+            MODE = "train"
             def _scrape(self, origin, destination, date_str, passengers):
-                # ... implementasi selenium ...
                 return [TransportSegment(...), ...]
     """
 
     # Subclass WAJIB set ini: "flight" | "train" | "bus"
     MODE: str = ""
+
+    # Stasiun/bandara/terminal codes (subclass boleh extend)
+    AIRPORT_CODES = {
+        "Jakarta": "CGK", "Surabaya": "SUB", "Bali": "DPS",
+        "Yogyakarta": "JOG", "Semarang": "SRG", "Medan": "KNO",
+        "Makassar": "UPG", "Bandung": "BDO", "Lombok": "LOP",
+        "Manado": "MDC", "Batam": "BTH", "Padang": "PDG",
+        "Palembang": "PLM", "Malang": "MLG",
+    }
+
+    STATION_CODES = {
+        "Jakarta": "GMR", "Surabaya": "SBI", "Yogyakarta": "YK",
+        "Semarang": "SMT", "Bandung": "BD", "Malang": "ML",
+        "Solo": "SLO", "Cirebon": "CN", "Purwokerto": "PWT",
+    }
 
     def __init__(self, headless: bool = True, timeout: int = 30):
         """
@@ -43,13 +66,8 @@ class BaseScraper(ABC):
             timeout  : Timeout per request dalam detik.
         """
         self.headless = headless
-        self.timeout  = timeout
-        self.logger   = logging.getLogger(self.__class__.__name__)
-        logging.basicConfig(
-            level  = logging.INFO,
-            format = "[%(asctime)s] %(name)s — %(message)s",
-            datefmt= "%H:%M:%S",
-        )
+        self.timeout = timeout
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     # ─────────────────────────────────────────────────────────────────────────
     #  PUBLIC — Interface yang dipakai SmartRouteOptimizer
@@ -61,25 +79,20 @@ class BaseScraper(ABC):
         destination: str,
         date_str: str,
         passengers: int = 1,
-        modes: Optional[list] = None,
-    ) -> list[TransportSegment]:
+        modes: Optional[List[str]] = None,
+    ) -> List[TransportSegment]:
         """
-        Ambil daftar TransportSegment untuk rute dan tanggal tertentu.
+        Ambil daftar TransportSegment untuk rute & tanggal tertentu.
 
-        Interface ini IDENTIK dengan DummyDataGenerator.get_segments() —
-        jadi optimizer tidak perlu diubah saat scraper sudah jadi.
-
-        Args:
-            origin      : Kota asal, e.g. "Jakarta"
-            destination : Kota tujuan, e.g. "Surabaya"
-            date_str    : Format "YYYY-MM-DD"
-            passengers  : Jumlah penumpang
-            modes       : Filter moda; None = ambil semua yang relevan
+        Interface ini identik dengan DummyDataGenerator.get_segments() dan
+        MultiModalDataSource.get_segments() — optimizer tidak perlu tahu
+        siapa yang melayani panggilannya.
 
         Returns:
-            List[TransportSegment], bisa kosong jika tidak ada hasil.
+            List[TransportSegment]. Bisa kosong jika tidak ada hasil atau
+            jika scraping gagal (exception dicatat dan ditelan).
         """
-        # Kalau moda ini bukan tanggung jawab scraper ini, kembalikan []
+        # Skip jika moda ini bukan tanggung jawab scraper ini
         if modes and self.MODE and self.MODE not in modes:
             return []
 
@@ -88,9 +101,12 @@ class BaseScraper(ABC):
             segments = self._scrape(origin, destination, date_str, passengers)
             self.logger.info(f"  ✓ {len(segments)} segmen ditemukan")
             return segments
+        except NotImplementedError:
+            # Re-raise NotImplementedError agar data_source bisa skip scraper ini
+            raise
         except Exception as e:
             self.logger.error(f"  ✗ Scraping gagal: {e}")
-            return []   # Kembalikan list kosong, jangan crash
+            return []
 
     # ─────────────────────────────────────────────────────────────────────────
     #  ABSTRACT — Wajib diimplementasi di subclass
@@ -103,12 +119,12 @@ class BaseScraper(ABC):
         destination: str,
         date_str: str,
         passengers: int,
-    ) -> list[TransportSegment]:
+    ) -> List[TransportSegment]:
         """
         Inti scraping — implementasi per moda transportasi.
 
-        Wajib return List[TransportSegment].
-        Boleh raise exception; akan ditangkap oleh get_segments().
+        Boleh raise NotImplementedError jika belum diimplementasi
+        (akan di-handle oleh data_source dengan skip).
         """
         ...
 
@@ -116,70 +132,10 @@ class BaseScraper(ABC):
     #  HELPER — Bisa dipakai di subclass
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _make_driver(self):
-        """
-        Buat instance Selenium WebDriver.
-        Gunakan ini di _scrape() setiap scraper.
-
-        TODO: Install chromedriver via webdriver-manager.
-        """
-        from selenium import webdriver
-        from selenium.webdriver.chrome.service import Service
-        from selenium.webdriver.chrome.options import Options
-        from webdriver_manager.chrome import ChromeDriverManager
-
-        opts = Options()
-        if self.headless:
-            opts.add_argument("--headless")
-        opts.add_argument("--no-sandbox")
-        opts.add_argument("--disable-dev-shm-usage")
-        opts.add_argument("--window-size=1920,1080")
-        # User agent agar tidak terdeteksi sebagai bot
-        opts.add_argument(
-            "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        )
-
-        driver = webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()),
-            options=opts,
-        )
-        driver.set_page_load_timeout(self.timeout)
-        return driver
-
     def _city_to_code(self, city: str, mode: str) -> str:
-        """
-        Konversi nama kota ke kode bandara/stasiun.
-        Extend tabel ini sesuai kebutuhan.
-        """
-        airport_codes = {
-            "Jakarta":    "CGK",
-            "Surabaya":   "SUB",
-            "Bali":       "DPS",
-            "Yogyakarta": "JOG",
-            "Semarang":   "SRG",
-            "Medan":      "KNO",
-            "Makassar":   "UPG",
-            "Bandung":    "BDO",
-            "Lombok":     "LOP",
-            "Manado":     "MDC",
-            "Batam":      "BTH",
-            "Padang":     "PDG",
-            "Palembang":  "PLM",
-            "Malang":     "MLG",
-        }
-        train_codes = {
-            "Jakarta":    "GMR",   # Gambir
-            "Surabaya":   "SBI",   # Surabaya Gubeng
-            "Yogyakarta": "YK",
-            "Semarang":   "SMT",
-            "Bandung":    "BD",
-            "Malang":     "ML",
-            "Solo":       "SLO",
-        }
+        """Konversi nama kota ke kode bandara / stasiun."""
         if mode == "flight":
-            return airport_codes.get(city, city[:3].upper())
-        elif mode == "train":
-            return train_codes.get(city, city[:3].upper())
+            return self.AIRPORT_CODES.get(city, city[:3].upper())
+        if mode == "train":
+            return self.STATION_CODES.get(city, city[:3].upper())
         return city

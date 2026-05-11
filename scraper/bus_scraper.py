@@ -1,40 +1,43 @@
 """
 scraper/bus_scraper.py — ANTARA Project
-=========================================
-Scraper untuk data bus dari RedBus / Traveloka (Bus section)
+=======================================
+Scraper untuk data bus dari RedBus / Traveloka Bus.
+
+STATUS: STUB. Belum diimplementasi. Data source akan otomatis skip scraper
+ini dan tidak crash.
 
 TODO (Nesya / Nurul):
-  1. Implementasi method _scrape() di bawah
-  2. Target site: RedBus Indonesia (utama), Traveloka Bus (fallback)
-  3. Gunakan self._make_driver() untuk Selenium
-  4. Test dengan: python scraper/bus_scraper.py
+  1. Implementasi _scrape() / _scrape_async() mengikuti pola TrainScraper.
+  2. Target site: RedBus Indonesia (utama), Traveloka Bus (fallback).
+  3. Pakai Playwright async (BUKAN Selenium).
+  4. Test: python scraper/bus_scraper.py
 
 Referensi URL RedBus:
   https://www.redbus.id/bus-tickets/{origin-slug}-to-{destination-slug}
   Contoh: https://www.redbus.id/bus-tickets/jakarta-to-surabaya
 """
 
-import time
-from datetime import datetime
+from typing import List
 
 from models import TransportSegment
 from scraper.base_scraper import BaseScraper
 
-# Mapping nama kota → slug URL RedBus
+
+# Mapping nama kota → slug URL RedBus (extend sesuai kebutuhan)
 REDBUS_SLUGS = {
-    "Jakarta":    "jakarta",
-    "Surabaya":   "surabaya",
+    "Jakarta": "jakarta",
+    "Surabaya": "surabaya",
     "Yogyakarta": "yogyakarta",
-    "Semarang":   "semarang",
-    "Bandung":    "bandung",
-    "Solo":       "solo",
-    "Malang":     "malang",
-    "Bali":       "bali",
+    "Semarang": "semarang",
+    "Bandung": "bandung",
+    "Solo": "solo",
+    "Malang": "malang",
+    "Bali": "bali",
 }
 
 
 class BusScraper(BaseScraper):
-    """Mengambil data bus dari RedBus Indonesia."""
+    """Mengambil data bus. STUB — belum diimplementasi."""
 
     MODE = "bus"
 
@@ -46,65 +49,41 @@ class BusScraper(BaseScraper):
         destination: str,
         date_str: str,
         passengers: int,
-    ) -> list[TransportSegment]:
+    ) -> List[TransportSegment]:
         """
-        Scrape data bus dari RedBus.
+        TODO: implementasi scraping bus.
 
-        TODO (Nesya / Nurul): Implementasi ini.
-
-        Panduan langkah-langkah:
-          1. Konversi nama kota ke slug RedBus (pakai REDBUS_SLUGS)
-          2. Buka URL RedBus
-          3. Set filter tanggal
-          4. Tunggu daftar bus muncul
-          5. Loop setiap card bus
-          6. Extract: operator, jam berangkat, jam tiba, harga, rating, tipe bus
-          7. Konversi ke TransportSegment
+        Pola implementasi (lihat TrainScraper):
+          1. Konversi nama kota ke slug RedBus pakai REDBUS_SLUGS.
+          2. Bangun URL.
+          3. async with async_playwright() ...
+          4. Set filter tanggal (kemungkinan via input/datepicker).
+          5. Tunggu daftar bus muncul.
+          6. Parse: operator, jam berangkat/tiba, harga, rating, tipe bus.
+          7. Return List[TransportSegment].
 
         Contoh hasil:
-            return [
-                TransportSegment(
-                    id               = "SEG-BUS-001",
-                    mode             = "bus",
-                    provider         = "PO Rosalia Indah",
-                    provider_code    = "RI",
-                    origin           = origin,
-                    destination      = destination,
-                    departure_time   = datetime(2026, 5, 10, 19, 0),
-                    arrival_time     = datetime(2026, 5, 11, 9, 0),
-                    duration_minutes = 840,
-                    price            = 180000,
-                    seat_class       = "Executive",
-                    available_seats  = 8,
-                    rating           = 4.2,
-                ),
-            ]
+            [TransportSegment(
+                id="SEG-BUS-XYZ",
+                mode="bus",
+                provider="PO Rosalia Indah",
+                provider_code="RI",
+                origin="Jakarta", destination="Surabaya",
+                departure_time=datetime(2026,5,15,19,0),
+                arrival_time=datetime(2026,5,16,9,0),
+                duration_minutes=840,
+                price=180000, seat_class="Executive",
+                available_seats=8, rating=4.2,
+            ), ...]
         """
         raise NotImplementedError(
-            "BusScraper._scrape() belum diimplementasi.\n"
-            "Lihat docstring di atas untuk panduan implementasi."
+            "BusScraper._scrape() belum diimplementasi. "
+            "Lihat docstring untuk panduan implementasi Playwright."
         )
-
-        # ── Template ──────────────────────────────────────────────────────────
-        # origin_slug = REDBUS_SLUGS.get(origin, origin.lower())
-        # dest_slug   = REDBUS_SLUGS.get(destination, destination.lower())
-        # url = self.REDBUS_URL.format(origin=origin_slug, dest=dest_slug)
-        #
-        # driver = self._make_driver()
-        # try:
-        #     driver.get(url)
-        #     time.sleep(4)
-        #     # TODO: set tanggal dan parse hasil
-        #     segments = []
-        #     return segments
-        # finally:
-        #     driver.quit()
 
 
 # ── Quick test ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     scraper = BusScraper(headless=True)
-    results = scraper.get_segments("Jakarta", "Surabaya", "2026-05-10", passengers=1)
+    results = scraper.get_segments("Jakarta", "Surabaya", "2026-05-15", passengers=1)
     print(f"Hasil: {len(results)} bus ditemukan")
-    for r in results:
-        print(f"  {r}")

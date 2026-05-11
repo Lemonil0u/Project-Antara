@@ -1,21 +1,21 @@
-# ─── Core ────────────────────────────────────────────────────────────────────
-streamlit>=1.35.0
+# ANTARA — Multi-Modal Transportation Price Comparison
+# ─────────────────────────────────────────────────────
+# Python 3.10+ direkomendasikan.
 
-# ─── Charts & Visualisasi ────────────────────────────────────────────────────
-plotly>=5.22.0
+# ── Core UI ─────────────────────────────────────────────────────────────────
+streamlit>=1.30.0
 
-# ─── Scraping ────────────────────────────────────────────────────────────────
-selenium>=4.21.0
-webdriver-manager>=4.0.1       # auto-download chromedriver
-requests>=2.32.0
-beautifulsoup4>=4.12.0
+# ── Visualisasi ─────────────────────────────────────────────────────────────
+plotly>=5.18.0
 
-# ─── Database ────────────────────────────────────────────────────────────────
-# sqlite3 sudah built-in di Python, tidak perlu install
+# ── Scraping (Playwright async — sudah migrasi dari Selenium) ──────────────
+# Setelah install, jalankan: playwright install chromium
+playwright>=1.40.0
 
-# ─── Testing ─────────────────────────────────────────────────────────────────
-pytest>=8.2.0
-pytest-mock>=3.14.0
+# ── Utilitas tanggal & request ──────────────────────────────────────────────
+python-dateutil>=2.8.0
+requests>=2.31.0
 
-# ─── Utilities ───────────────────────────────────────────────────────────────
-python-dateutil>=2.9.0
+# ── Testing ─────────────────────────────────────────────────────────────────
+pytest>=7.4.0
+pytest-mock>=3.12.0
