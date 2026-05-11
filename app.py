@@ -29,7 +29,7 @@ def get_optimizer():
     data_source = MultiModalDataSource(
         headless=True,
         timeout=30,
-        enabled_modes=["train", "flight"],
+        enabled_modes=["train"],
     )
     return SmartRouteOptimizer(data_source=data_source)
 
