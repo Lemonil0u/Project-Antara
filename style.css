@@ -1,133 +1,276 @@
-/* HEADER BUTTON */
-.header-btn {
-    display: flex;
-    gap: 10px;
-    justify-content: flex-end;
+/* =========================================================
+ROOT COLORS
+========================================================= */
+
+:root{
+    --primary:#26a69a;
+    --primary-dark:#0f766e;
+    --primary-light:#eef9f8;
+
+    --text:#1e293b;
+    --subtext:#64748b;
+
+    --bg:#f5f7fb;
+    --card:#ffffff;
+
+    --shadow:0 4px 20px rgba(0,0,0,0.06);
 }
 
-.header-btn button {
-    padding: 10px 20px;
-    border-radius: 12px;
-    border: 1px solid #ddd;
-    background: white;
-    cursor: pointer;
+/* =========================================================
+GLOBAL
+========================================================= */
+
+html,
+body,
+[data-testid="stAppViewContainer"]{
+    background:var(--bg);
+    font-family:'Segoe UI',sans-serif;
 }
 
-.header-btn .signup {
-    background-color: #26a69a;
-    color: white;
-    border: none;
+.block-container{
+    padding-top:2rem;
+    padding-bottom:2rem;
 }
 
-/* FILTER CARD */
-.filter-card {
-    background-color: #f8f9fa;
-    padding: 20px;
-    border-radius: 20px;
-    border: 1px solid #eaeaea;
+/* =========================================================
+TYPOGRAPHY
+========================================================= */
+
+h1{
+    font-weight:800;
+    letter-spacing:-0.5px;
 }
 
-/* HIGHLIGHT CARDS */
-.card-highlight {
-    padding: 20px;
-    border-radius: 15px;
+h2{
+    font-weight:700;
 }
 
-.cheap-bg {
-    background-color: #ffe8d6;
-    border: 1px solid #ffccb3;
+p{
+    line-height:1.6;
 }
 
-.fast-bg {
-    background-color: #e3f2fd;
-    border: 1px solid #bbdefb;
-}
+/* =========================================================
+BUTTONS
+========================================================= */
 
-/* RESULT CARD */
-.result-card {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 18px;
-    border-radius: 16px;
-    border: 1px solid #eee;
-    margin-bottom: 12px;
-    background: white;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.05);
-}
-
-/* SELECT BUTTON */
-.select-btn {
-    background:#26a69a;
-    color:white;
+.stButton > button{
+    border-radius:12px;
     border:none;
-    padding:6px 15px;
-    border-radius:10px;
+    background:var(--primary);
+    color:white;
+    font-weight:600;
+    transition:all 0.2s ease;
+    height:45px;
+    box-shadow:0 2px 8px rgba(38,166,154,0.15);
+}
+
+.stButton > button:hover{
+    background:var(--primary-dark);
+    transform:translateY(-1px);
+    color:white;
+}
+
+/* =========================================================
+INPUTS
+========================================================= */
+
+.stSelectbox > div,
+.stDateInput > div,
+.stTextInput > div{
+    border-radius:14px !important;
+}
+
+/* =========================================================
+GENERAL CARD
+========================================================= */
+
+.card{
+    background:white;
+    border-radius:24px;
+    padding:24px;
+    box-shadow:var(--shadow);
+    border:1px solid #eef2f7;
+}
+
+/* =========================================================
+SIDEBAR
+========================================================= */
+
+.sidebar-box{
+    background:white;
+    border-radius:24px;
+    padding:24px 18px;
+    box-shadow:var(--shadow);
+    position:sticky;
+    top:20px;
+}
+
+/* =========================================================
+FILTER CARD
+========================================================= */
+
+.filter-card{
+    background:white;
+    padding:24px;
+    border-radius:20px;
+    border:1px solid #eef2f7;
+    box-shadow:var(--shadow);
+}
+
+/* =========================================================
+HIGHLIGHT CARD
+========================================================= */
+
+.card-highlight{
+    padding:24px;
+    border-radius:20px;
+    box-shadow:var(--shadow);
+}
+
+.cheap-bg{
+    background:linear-gradient(
+        135deg,
+        #ffe8d6,
+        #fff3eb
+    );
+
+    border:1px solid #ffd4b8;
+}
+
+.fast-bg{
+    background:linear-gradient(
+        135deg,
+        #dff3ff,
+        #eef8ff
+    );
+
+    border:1px solid #bfe4ff;
+}
+
+/* =========================================================
+RESULT CARD
+========================================================= */
+
+.result-card{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+
+    background:white;
+
+    border-radius:20px;
+
+    padding:22px;
+
+    border:1px solid #f1f5f9;
+
+    box-shadow:0 4px 20px rgba(0,0,0,0.05);
+
+    transition:all 0.2s ease;
+
+    margin-bottom:14px;
+}
+
+.result-card:hover{
+    transform:translateY(-2px);
+
+    box-shadow:0 10px 30px rgba(0,0,0,0.08);
+}
+
+/* =========================================================
+TRANSPORT MODE BUTTON
+========================================================= */
+
+.mode-normal button{
+    background:white !important;
+    border:1px solid #dbe2ea !important;
+    color:#1e293b !important;
+}
+
+.mode-normal button:hover{
+    border:1px solid var(--primary) !important;
+    color:var(--primary) !important;
+    background:#f8fffe !important;
+}
+
+.mode-active button{
+    background:var(--primary) !important;
+    color:white !important;
+    border:none !important;
+}
+
+/* =========================================================
+HEADER BUTTONS
+========================================================= */
+
+.header-btn{
+    display:flex;
+    gap:10px;
+    justify-content:flex-end;
+}
+
+.header-btn button{
+    padding:10px 20px;
+    border-radius:12px;
+    border:1px solid #ddd;
+    background:white;
     cursor:pointer;
 }
 
-/* TRANSPORT MODE BUTTON */
-
-.mode-normal button {
-    background: white;
-    border: 1px solid #ddd;
-    color: black;
+.header-btn .signup{
+    background-color:var(--primary);
+    color:white;
+    border:none;
 }
 
-.mode-active button {
-    background: #26a69a !important;
-    color: white !important;
-    border: none !important;
+/* =========================================================
+TABLE / DATAFRAME
+========================================================= */
+
+[data-testid="stDataFrame"]{
+    border-radius:18px;
+    overflow:hidden;
+    border:1px solid #eef2f7;
 }
 
-.mode-normal button:hover {
-    border: 1px solid #26a69a;
-    color: #26a69a;
+/* =========================================================
+PLOTLY CHART
+========================================================= */
+
+.js-plotly-plot{
+    border-radius:20px;
+    overflow:hidden;
 }
 
-/* DASHBOARD VERSION (biar gak tabrakan) */
-.dash-filter {
-    background-color: #f8f9fa;
+/* =========================================================
+METRIC STYLE
+========================================================= */
+
+[data-testid="metric-container"]{
+    background:white;
+    border-radius:18px;
+    padding:16px;
+    border:1px solid #eef2f7;
+    box-shadow:var(--shadow);
 }
 
-.dash-card {
-    border-radius: 15px;
+/* =========================================================
+SCROLLBAR
+========================================================= */
+
+::-webkit-scrollbar{
+    width:8px;
 }
 
-/* RESULT PAGE */
-.result-card {
-    background: white;
-    padding: 16px;
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    font-size: 14px;
+::-webkit-scrollbar-track{
+    background:#f1f5f9;
 }
 
-/* Sidebar tetap konsisten */
-/* .sidebar-dashboard {
-    background: linear-gradient(to bottom, #e6f4f3, #cfe8e6);
-    padding: 20px;
-    border-radius: 15px;
-    height: 100%;
-} */
-
-/* This targets the entire sidebar area */
-[data-testid="stSidebar"] {
-    background-color: #f8f9fa;
-    padding: 2rem 1rem;
+::-webkit-scrollbar-thumb{
+    background:#cbd5e1;
+    border-radius:10px;
 }
 
-/* This targets the buttons inside the sidebar */
-[data-testid="stSidebar"] .stButton > button {
-    background-color: #ffffff;
-    color: #333;
-    border: 1px solid #ddd;
-    border-radius: 10px;
-    transition: all 0.3s ease;
-}
-
-[data-testid="stSidebar"] .stButton > button:hover {
-    border-color: #ff4b4b;
-    color: #ff4b4b;
-    background-color: #fffafa;
+::-webkit-scrollbar-thumb:hover{
+    background:#94a3b8;
 }
