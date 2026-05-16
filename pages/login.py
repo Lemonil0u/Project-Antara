@@ -37,7 +37,7 @@ with c_mid:
         st.markdown('<h2 style="font-family:Plus Jakarta Sans,sans-serif; font-size:1.6rem; font-weight:800; color:#1e2a52; margin:0 0 4px;">Sign In</h2>', unsafe_allow_html=True)
         st.markdown('<p style="font-size:14px; color:#94a3b8; margin-bottom:20px;">Enter your credentials to continue</p>', unsafe_allow_html=True)
 
-        email    = st.text_input("Email", placeholder="admin@antara.com")
+        email    = st.text_input("Email", placeholder="username")
         password = st.text_input("Password", type="password", placeholder="••••••••")
 
         st.markdown('<div class="spacer-sm"></div>', unsafe_allow_html=True)

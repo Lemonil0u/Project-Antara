@@ -4,6 +4,7 @@ pages/dashboard.py — ANTARA
 Halaman utama: hero, search, popular routes, hasil pencarian.
 """
 
+import base64
 import streamlit as st
 import time
 import os
@@ -18,11 +19,60 @@ with open("style.css") as f:
 
 apply_theme()
 
+# ── AGGRESSIVE CSS OVERRIDE FOR FILTERS ──────────────────────
+st.markdown("""
+<style>
+    /* 1. Ultra-High Specificity for Active States */
+    div.stApp [data-testid="column"]:has(.mode-btn-bus-active) .stButton > button,
+    div.stApp [data-testid="column"]:has(.mode-btn-bus-active) .stButton > button:not([kind="nothing"]) {
+        background: linear-gradient(135deg, #22c55e, #16a34a) !important;
+        color: white !important;
+        border: none !important;
+        box-shadow: 0 2px 10px rgba(34, 197, 94, 0.35) !important;
+    }
+    
+    div.stApp [data-testid="column"]:has(.mode-btn-train-active) .stButton > button,
+    div.stApp [data-testid="column"]:has(.mode-btn-train-active) .stButton > button:not([kind="nothing"]) {
+        background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
+        color: white !important;
+        border: none !important;
+        box-shadow: 0 2px 10px rgba(59, 130, 246, 0.35) !important;
+    }
+    
+    div.stApp [data-testid="column"]:has(.mode-btn-flight-active) .stButton > button,
+    div.stApp [data-testid="column"]:has(.mode-btn-flight-active) .stButton > button:not([kind="nothing"]) {
+        background: linear-gradient(135deg, #f97316, #ea580c) !important;
+        color: white !important;
+        border: none !important;
+        box-shadow: 0 2px 10px rgba(249, 115, 22, 0.35) !important;
+    }
+
+    /* 2. Inactive State */
+    div.stApp [data-testid="column"]:has(.mode-btn-inactive) .stButton > button,
+    div.stApp [data-testid="column"]:has(.mode-btn-inactive) .stButton > button:not([kind="nothing"]) {
+        background: #ffffff !important;
+        color: #6b7280 !important;
+        border: 1.5px solid #e2e8f0 !important;
+        box-shadow: none !important;
+    }
+
+    /* Ensure text visibility */
+    div.stApp [data-testid="column"]:has([class*="-active"]) button p {
+        color: white !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # ── SESSION STATE ────────────────────────────────────────────
 for key, default in [
     ("search_clicked", False),
     ("searching", False),
     ("selected_transport", ["Bus", "Train", "Flight"]),
+    ("airline_filter_mode", "All Airlines"),
+    ("f_garuda", True),
+    ("f_lion", True),
+    ("f_batik", True),
+    ("f_citilink", True),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -33,8 +83,48 @@ CITIES = [
     "Palembang", "Balikpapan",
 ]
 
+DEFAULT_TRANSPORT_MODES = ["Bus", "Train", "Flight"]
+AIRLINE_OPTIONS = ["Garuda Indonesia", "Lion Air", "Batik Air", "Citilink"]
+TRANSPORT_ICONS = {"Bus": "🚌", "Train": "🚆", "Flight": "✈️"}
+TRANSPORT_COLORS = {"Bus": "#22c55e", "Train": "#3b82f6", "Flight": "#f97316"}
+
 # ── SIDEBAR ──────────────────────────────────────────────────
 render_sidebar(active="home")
+
+# ── UTIL ─────────────────────────────────────────────────────
+def get_base64_image(path):
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+
+def reset_dashboard_filters():
+    st.session_state.airline_filter_mode = "All Airlines"
+    st.session_state.f_garuda = True
+    st.session_state.f_lion = True
+    st.session_state.f_batik = True
+    st.session_state.f_citilink = True
+    st.session_state.f_price = (0, 5_000_000)
+    st.session_state.selected_transport = DEFAULT_TRANSPORT_MODES.copy()
+
+
+def get_route_identity(route, origin_from, origin_to):
+    return (
+        route.get("type", ""),
+        route.get("name", ""),
+        origin_from,
+        origin_to,
+        route.get("time", ""),
+    )
+
+
+def get_saved_route_ids():
+    return {
+        get_route_identity(route, route.get("from", ""), route.get("to", ""))
+        for route in st.session_state.get("saved_routes", [])
+    }
 
 # ── HERO ─────────────────────────────────────────────────────
 st.markdown("""
@@ -106,33 +196,31 @@ if st.session_state.searching:
     st.rerun()
 
 # ── POPULAR ROUTES ────────────────────────────────────────────
-st.markdown('<div class="spacer-lg"></div>', unsafe_allow_html=True)
+if not st.session_state.search_clicked:
+    st.markdown('<div class="spacer-lg"></div>', unsafe_allow_html=True)
+    st.markdown('<p class="section-title">Popular Routes</p>', unsafe_allow_html=True)
 
-st.markdown('<p class="section-title">Popular Routes</p>', unsafe_allow_html=True)
+    r1, r2, r3 = st.columns(3)
 
-r1, r2, r3 = st.columns(3)
+    POPULAR = [
+        ("assets/train.png", "Train",  "#3b82f6", "Tugu Yogyakarta Station"),
+        ("assets/bus.png",   "Bus",    "#22c55e", "Blok M Bus Terminal"),
+        ("assets/plane.png", "Plane",  "#f97316", "Soekarno-Hatta Airport"),
+    ]
 
-POPULAR = [
-    ("assets/train.png", "Train",  "#3b82f6", "Tugu Yogyakarta Station"),
-    ("assets/bus.png",   "Bus",    "#22c55e", "Blok M Bus Terminal"),
-    ("assets/plane.png", "Plane",  "#f97316", "Soekarno-Hatta Airport"),
-]
+    for col, (img_path, title, color, subtitle) in zip([r1, r2, r3], POPULAR):
+        with col:
+            b64 = get_base64_image(img_path)
+            img_html = f'<img src="data:image/png;base64,{b64}" style="width:100%; border-radius:12px;">' if b64 else ""
 
-for col, (img, title, color, subtitle) in zip([r1, r2, r3], POPULAR):
-    with col:
-        st.markdown(f"""
-        <div class="route-tile">
-        """, unsafe_allow_html=True)
-
-        if os.path.exists(img):
-            st.image(img, use_container_width=True)
-
-        st.markdown(f"""
-            <p class="route-tile-type" style="color:{color};">{title}</p>
-            <p class="route-tile-title">{title}</p>
-            <p class="route-tile-sub">{subtitle}</p>
-        </div>
-        """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="route-tile">
+                {img_html}
+                <p class="route-tile-type" style="color:{color}; margin-top:10px;">{title}</p>
+                <p class="route-tile-title">{title}</p>
+                <p class="route-tile-sub">{subtitle}</p>
+            </div>
+            """, unsafe_allow_html=True)
 
 # ── RECOMMENDED ROUTES ────────────────────────────────────────
 if not st.session_state.search_clicked:
@@ -163,14 +251,16 @@ with top_right:
             sel.append(mode)
 
     def _mode_btn(label, mode, col):
-        active = mode in st.session_state.selected_transport
-        wrap = "mode-btn-active" if active else "mode-btn-inactive"
+        is_active = mode in st.session_state.selected_transport
+        wrap = f"mode-btn-{mode.lower()}-active" if is_active else "mode-btn-inactive"
+        
         with col:
-            st.markdown(f'<div class="{wrap}">', unsafe_allow_html=True)
-            if st.button(label, key=f"mbtn_{mode}", use_container_width=True):
+            # Marker div sebagai identitas kolom
+            st.markdown(f'<div class="{wrap}"></div>', unsafe_allow_html=True)
+            display_label = f"✅ {label}" if is_active else label # Add checkmark emoji
+            if st.button(display_label, key=f"mbtn_{mode}", use_container_width=True):
                 _toggle(mode)
                 st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
 
     _mode_btn("✈️ Flight", "Flight", m1)
     _mode_btn("🚆 Train",  "Train",  m2)
@@ -190,11 +280,20 @@ with c_filter:
     </div>
     """, unsafe_allow_html=True)
 
-    st.checkbox("All Airlines",      value=True, key="f_all")
-    st.checkbox("Garuda Indonesia",  key="f_garuda")
-    st.checkbox("Lion Air",          key="f_lion")
-    st.checkbox("Batik Air",         key="f_batik")
-    st.checkbox("Citilink",          key="f_citilink")
+    st.selectbox(
+        "Airline Mode",
+        ["All Airlines", "Custom Selection"],
+        key="airline_filter_mode",
+        label_visibility="collapsed",
+        help="Pilih mode dulu, lalu checkbox airlines akan muncul jika Custom Selection dipilih.",
+    )
+
+    if st.session_state.airline_filter_mode == "Custom Selection":
+        st.markdown('<p class="filter-section-label" style="margin-top:10px; padding:10px;">Choose Airlines</p>', unsafe_allow_html=True)
+        st.checkbox("Garuda Indonesia", key="f_garuda")
+        st.checkbox("Lion Air", key="f_lion")
+        st.checkbox("Batik Air", key="f_batik")
+        st.checkbox("Citilink", key="f_citilink")
 
     st.markdown('<p class="filter-section-label" style="margin-top:16px;">Price Range</p>', unsafe_allow_html=True)
 
@@ -206,8 +305,20 @@ with c_filter:
         key="f_price"
     )
 
-    st.markdown('<div class="spacer-sm"></div>', unsafe_allow_html=True)
-    st.button("Reset Filter", use_container_width=True, type="secondary", key="f_reset")
+    is_transport_filtered = set(st.session_state.selected_transport) != set(DEFAULT_TRANSPORT_MODES)
+    is_airline_filtered = st.session_state.airline_filter_mode != "All Airlines"
+    is_price_filtered = price_range != (0, price_max)
+    is_filter_used = is_transport_filtered or is_airline_filtered or is_price_filtered
+
+    if is_filter_used:
+        st.markdown('<div class="spacer-sm"></div>', unsafe_allow_html=True)
+        st.button(
+            "Reset Filter",
+            use_container_width=True,
+            type="secondary",
+            key="f_reset",
+            on_click=reset_dashboard_filters,
+        )
 
 # ── HASIL ─────────────────────────────────────────────────────
 with c_results:
@@ -219,10 +330,33 @@ with c_results:
         {"type": "Flight", "name": "Lion Air",         "time": "09:00 - 11:30", "duration": "2h 30m", "price": "Rp 950.000",   "price_raw": 950_000,   "rating": "4.3"},
     ]
 
+    # --- LOGIKA FILTER AIRLINES ---
+    if st.session_state.airline_filter_mode == "Custom Selection":
+        selected_airlines = []
+        if st.session_state.get("f_garuda"):
+            selected_airlines.append("Garuda Indonesia")
+        if st.session_state.get("f_lion"):
+            selected_airlines.append("Lion Air")
+        if st.session_state.get("f_batik"):
+            selected_airlines.append("Batik Air")
+        if st.session_state.get("f_citilink"):
+            selected_airlines.append("Citilink")
+        all_airlines_selected = set(selected_airlines) == set(AIRLINE_OPTIONS)
+    else:
+        selected_airlines = AIRLINE_OPTIONS
+        all_airlines_selected = True
+
+    st.session_state.selected_airlines = selected_airlines
+
     filtered = [
         i for i in TRANSPORT_DATA
         if i["type"] in st.session_state.selected_transport
         and price_range[0] <= i["price_raw"] <= price_range[1]
+        and (
+            i["type"] != "Flight" or 
+            all_airlines_selected or 
+            i["name"] in selected_airlines
+        )
     ]
 
     if filtered:
@@ -249,7 +383,8 @@ with c_results:
 
         st.markdown('<div class="spacer-md"></div>', unsafe_allow_html=True)
 
-    COLOR_MAP = {"Bus": "#22c55e", "Train": "#3b82f6", "Flight": "#f97316"}
+    COLOR_MAP = TRANSPORT_COLORS
+    saved_route_ids = get_saved_route_ids()
 
     if not filtered:
         st.markdown("""
@@ -262,6 +397,8 @@ with c_results:
     else:
         for item in filtered:
             color = COLOR_MAP.get(item["type"], "#26a69a")
+            is_saved = get_route_identity(item, from_city, to_city) in saved_route_ids
+            saved_badge = '<span style="color:#f59e0b; font-size:16px; margin-left:8px;">★</span>' if is_saved else ""
 
             card_col, btn_col = st.columns([5, 1])
 
@@ -270,7 +407,7 @@ with c_results:
                 <div class="result-card">
                     <div>
                         <p class="result-card-badge" style="color:{color};">{item['type']}</p>
-                        <p class="result-card-name">{item['name']}</p>
+                        <p class="result-card-name">{item['name']}{saved_badge}</p>
                         <p class="result-card-meta">{item['time']} &nbsp;·&nbsp; {item['duration']}</p>
                         <p class="result-card-rating">⭐ {item['rating']}</p>
                     </div>
@@ -285,5 +422,7 @@ with c_results:
                     st.session_state.selected_from   = from_city
                     st.session_state.selected_to     = to_city
                     st.session_state.selected_date   = str(travel_date)
+                    st.session_state.route_origin_page = "pages/dashboard.py"
+                    st.session_state.route_origin_label = "Results"
                     if os.path.exists("pages/result.py"):
                         st.switch_page("pages/result.py")

@@ -132,7 +132,7 @@ else:
             with info_col:
                 st.markdown(f"""
                 <p class="result-card-badge" style="color:{route['color']}; margin-bottom:2px;">{route['type']}</p>
-                <p style="font-family:Plus Jakarta Sans,sans-serif; font-size:18px; font-weight:700; color:#1e2a52; margin:0 0 2px;">{route['name']}</p>
+                <p style="font-family:Plus Jakarta Sans,sans-serif; font-size:18px; font-weight:700; color:#1e2a52; margin:0 0 2px;">{route['name']} <span style="color:#f59e0b;">★</span></p>
                 <p style="font-size:14px; color:#6b7280; margin:0 0 6px;">{route['from']} → {route['to']}</p>
                 <p style="font-size:13px; color:#94a3b8; margin:0;">
                     📅 {route['date']} &nbsp;·&nbsp; ⏱ {route['duration']} &nbsp;·&nbsp; ⭐ {route['rating']}
@@ -147,6 +147,9 @@ else:
                     st.session_state.selected_route = route
                     st.session_state.selected_from  = route["from"]
                     st.session_state.selected_to    = route["to"]
+                    st.session_state.selected_date  = route.get("date", "")
+                    st.session_state.route_origin_page = "pages/favorite_routes.py"
+                    st.session_state.route_origin_label = "Saved Routes"
                     if os.path.exists("pages/result.py"):
                         st.switch_page("pages/result.py")
 

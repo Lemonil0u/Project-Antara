@@ -79,11 +79,14 @@ with c:
         "Comparing prices..."
     ]
 
-    # ambil data session
-    origin = st.session_state.origin
-    destination = st.session_state.destination
-    departure_date = st.session_state.departure_date
-    passengers = st.session_state.passengers
+    # pastikan data ada
+    if "origin" not in st.session_state:
+        st.switch_page("app.py")
+
+    origin = st.session_state.get("origin")
+    destination = st.session_state.get("destination")
+    departure_date = st.session_state.get("departure_date")
+    passengers = st.session_state.get("passengers", 1)
 
     import threading
 

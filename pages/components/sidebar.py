@@ -18,6 +18,21 @@ def render_sidebar(active: str = ""):
                 Nilai: "home", "visualization", "favorites", "settings", "profile"
     """
 
+    # Fix permanen untuk "keyboard_double_arrow_left" dan "cache" artifacts
+    st.markdown("""
+        <style>
+        [data-testid="collapsedControl"], 
+        button[aria-label="Collapse sidebar"], 
+        button[aria-label="Expand sidebar"],
+        .st-emotion-cache-5r6ut5 {
+            display: none !important;
+            font-size: 0 !important;
+            color: transparent !important;
+            visibility: hidden !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     with st.sidebar:
 
         # ── LOGO ─────────────────────────────────────
