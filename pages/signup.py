@@ -1,149 +1,70 @@
+"""
+pages/signup.py — ANTARA
+==========================
+Halaman registrasi akun baru.
+"""
+
 import streamlit as st
 import os
 
-st.set_page_config(page_title="Sign Up - ANTARA", layout="wide")
+st.set_page_config(page_title="Sign Up — ANTARA", layout="centered")
 
-# ======================
-# LOAD CSS
-# ======================
-with open("style.css") as f:
-    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+# ── CSS ──────────────────────────────────────────────────────
+if os.path.exists("style.css"):
+    with open("style.css") as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-# ======================
-# HEADER
-# ======================
-left, right = st.columns([6,1.8])
+if st.session_state.get("logged_in"):
+    st.switch_page("pages/dashboard.py")
 
-with left:
-    st.image("assets/logo_antara.png", width=140)
+# ── LAYOUT ───────────────────────────────────────────────────
+st.markdown('<div style="height:40px"></div>', unsafe_allow_html=True)
 
-with right:
-    col_login, col_signup = st.columns(2)
+_, c_mid, _ = st.columns([1, 2, 1])
 
-    with col_login:
-        if st.button("Login", use_container_width=True):
-            st.switch_page("pages/login.py")
-
-    with col_signup:
-        st.button("Sign Up", use_container_width=True)
-
-st.markdown("<br><br>", unsafe_allow_html=True)
-
-# ======================
-# CENTER AREA
-# ======================
-c1, c2, c3 = st.columns([1,2,1])
-
-with c2:
-
-    st.markdown(
-        "<h2 style='text-align:center; color:#26a69a;'>Create Your ANTARA Account</h2>",
-        unsafe_allow_html=True
-    )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ======================
-    # FORM
-    # ======================
-    name = st.text_input("Full Name")
-    email = st.text_input("Email")
-    password = st.text_input("Password", type="password")
-    confirm_password = st.text_input("Confirm Password", type="password")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ======================
-    # REMEMBER ME
-    # ======================
-    remember = st.checkbox("Remember me")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ======================
-    # CREATE ACCOUNT BUTTON
-    # ======================
-    left_btn, center_btn, right_btn = st.columns([1,2,1])
-
-    with center_btn:
-        if st.button("Create Account", use_container_width=True):
-
-            if password != confirm_password:
-                st.error("Password tidak sama")
-
-            elif name == "" or email == "" or password == "":
-                st.warning("Semua field harus diisi")
-
-            else:
-                st.success("Account berhasil dibuat!")
-                st.switch_page("app.py")
-
-    # ======================
-    # OR
-    # ======================
-    st.markdown(
-        "<p style='text-align:center; color:gray;'>— OR —</p>",
-        unsafe_allow_html=True
-    )
-
-    # ======================
-    # GOOGLE LOGIN
-    # ======================
-    google_logo = "assets/google.png"
-
-    google_oauth_url = (
-        "https://accounts.google.com/o/oauth2/v2/auth"
-        "?client_id=YOUR_CLIENT_ID"
-        "&redirect_uri=http://localhost:8501"
-        "&response_type=token"
-        "&scope=email profile"
-    )
-
-    if os.path.exists(google_logo):
-
-        st.markdown(
-        f"""
-        <a href="{google_oauth_url}" style="text-decoration:none;">
-        <div style="
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        gap:10px;
-        border:1px solid #ddd;
-        border-radius:8px;
-        padding:14px;
-        margin-top:10px;
-        cursor:pointer;
-        ">
-        <img src="assets/google.png" width="24">
-        <span style="font-weight:500;">Login with Google</span>
-        </div>
-        </a>
-        """,
-        unsafe_allow_html=True
-        )
-
+with c_mid:
+    if os.path.exists("assets/logo_antara.png"):
+        st.image("assets/logo_antara.png", width=110)
     else:
+        st.markdown("<p style='font-family:Plus Jakarta Sans,sans-serif; font-size:26px; font-weight:800; color:#26a69a;'>ANTARA</p>", unsafe_allow_html=True)
 
-        st.link_button(
-            "Login with Google",
-            google_oauth_url,
-            use_container_width=True
-        )
+    st.markdown('<div style="height:24px"></div>', unsafe_allow_html=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown('<p class="page-eyebrow" style="margin-bottom:4px;">Get Started</p>', unsafe_allow_html=True)
+        st.markdown('<h2 style="font-family:Plus Jakarta Sans,sans-serif; font-size:1.6rem; font-weight:800; color:#1e2a52; margin:0 0 4px;">Create Account</h2>', unsafe_allow_html=True)
+        st.markdown('<p style="font-size:14px; color:#94a3b8; margin-bottom:20px;">Join ANTARA and plan smarter journeys</p>', unsafe_allow_html=True)
 
-    # ======================
-    # LOGIN LINK (SAME TAB)
-    # ======================
-    st.markdown(
-    """
-    <p style="text-align:center;">
-    Already have an account?
-    <a href="/login" target="_self" style="color:#26a69a; font-weight:600; text-decoration:none;">
-    Login
-    </a>
-    </p>
-    """,
-    unsafe_allow_html=True
-    )
+        full_name = st.text_input("Full Name",       placeholder="Your name")
+        email     = st.text_input("Email",           placeholder="your@email.com")
+        phone     = st.text_input("Phone Number",    placeholder="+62 8xx-xxxx-xxxx")
+        password  = st.text_input("Password",        type="password", placeholder="Minimum 6 characters")
+        conf_pw   = st.text_input("Confirm Password", type="password", placeholder="Repeat password")
+
+        st.markdown('<div class="spacer-sm"></div>', unsafe_allow_html=True)
+
+        if st.button("Create Account", use_container_width=True):
+            if not all([full_name, email, password, conf_pw]):
+                st.error("Semua field wajib diisi.")
+            elif password != conf_pw:
+                st.error("Password tidak cocok.")
+            elif len(password) < 6:
+                st.error("Password minimal 6 karakter.")
+            else:
+                st.session_state.logged_in = True
+                st.session_state.user = {
+                    "name":     full_name,
+                    "email":    email,
+                    "phone":    phone,
+                    "location": "Indonesia",
+                    "password": password,
+                }
+                st.success("Akun berhasil dibuat!")
+                st.switch_page("pages/dashboard.py")
+
+        st.markdown('<div class="spacer-sm"></div>', unsafe_allow_html=True)
+        st.markdown('<p style="text-align:center; font-size:14px; color:#94a3b8;">Sudah punya akun?</p>', unsafe_allow_html=True)
+
+        if st.button("Sign In", use_container_width=True, type="secondary"):
+            if os.path.exists("pages/login.py"):
+                st.switch_page("pages/login.py")
