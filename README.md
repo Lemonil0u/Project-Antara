@@ -279,6 +279,8 @@ enabled_modes=["train", "flight", "bus"]
 - Sort By dropdown: Cheapest / Fastest / Best Value
 - Bug fix: DuplicateElementKey tombol Select, fastest card salah sort string, tanggal header ikut widget, redirect ke landing setelah loading
 - Visualization: ganti dummy data dengan real scraping + cache logic
+- BusScraper diimplementasi penuh (tiket.com, Playwright async, parallel dengan train + flight)
+- Bug fix: durasi perjalanan >24 jam salah hitung (e.g. Jakarta → Denpasar by bus)
 
 ### v1.0 (Mei 2026)
 - Initial release
