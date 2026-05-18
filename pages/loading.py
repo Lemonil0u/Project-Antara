@@ -38,7 +38,7 @@ def get_optimizer():
     ds = MultiModalDataSource(
         headless=True,
         timeout=30,
-        enabled_modes=["train", "flight"],
+        enabled_modes=["train", "flight", "bus"],
         db=db,
         cache_ttl_minutes=60,
     )

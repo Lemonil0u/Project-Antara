@@ -45,7 +45,7 @@ if _HAS_ENGINE:
         ds = MultiModalDataSource(
             headless=True,
             timeout=30,
-            enabled_modes=["train", "flight"],
+            enabled_modes=["train", "flight", "bus"],
             db=db,               # ← price cache aktif
             cache_ttl_minutes=60,
         )
