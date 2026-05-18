@@ -134,6 +134,17 @@ def show_login_modal():
 
 # ── SIGNUP MODAL ──────────────────────────────────────────────────────────────
 @st.dialog("Create Account - ANTARA")
+def _is_valid_email(email: str) -> bool:
+    import re
+    return bool(re.match(r'^[\w\.\-]+@[\w\.\-]+\.\w{2,}$', email.strip()))
+
+
+def _is_valid_phone(phone: str) -> bool:
+    import re
+    digits = re.sub(r'[\s\-\(\)]', '', phone)
+    return bool(re.match(r'^(\+62|62|0)8\d{8,11}$', digits))
+
+
 def show_signup_modal():
     st.markdown('<p class="page-eyebrow" style="margin-bottom:4px;">Get Started</p>', unsafe_allow_html=True)
     st.markdown('<p style="font-size:14px; color:#94a3b8; margin-bottom:20px;">Join ANTARA and plan smarter journeys</p>', unsafe_allow_html=True)
@@ -152,12 +163,18 @@ def show_signup_modal():
             cancel_signup = st.form_submit_button("Cancel", use_container_width=True, type="secondary")
 
     if submit_signup:
-        if not all([full_name, email, password, conf_pw]):
+        if not full_name or not full_name.strip():
+            st.error("Nama tidak boleh kosong.")
+        elif not all([email, password, conf_pw]):
             st.error("Semua field wajib diisi.")
-        elif password != conf_pw:
-            st.error("Password tidak cocok.")
+        elif not _is_valid_email(email):
+            st.error("Format email tidak valid. Contoh: nama@email.com")
+        elif phone and not _is_valid_phone(phone):
+            st.error("Format nomor telepon tidak valid. Contoh: 08123456789")
         elif len(password) < 6:
             st.error("Password minimal 6 karakter.")
+        elif password != conf_pw:
+            st.error("Password tidak cocok.")
         else:
             st.session_state.logged_in = True
             st.session_state.user = {
