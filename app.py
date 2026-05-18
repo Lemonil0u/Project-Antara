@@ -13,11 +13,16 @@ Cara menjalankan:
 
 import base64
 import os
+import re
 
 import streamlit as st
 
 try:
     from database import DatabaseManager
+except ImportError:
+    DatabaseManager = None
+
+try:
     from engine.data_source import MultiModalDataSource
     from engine.optimizer import SmartRouteOptimizer
     from models import SearchCriteria
@@ -109,30 +114,41 @@ def show_login_modal():
             cancel_login = st.form_submit_button("Cancel", use_container_width=True, type="secondary")
 
     if submit_login:
-        if email == "admin@antara.com" and password == "123":
-            st.session_state.logged_in = True
-            st.session_state.user = {
-                "name": "Admin ANTARA",
-                "email": email,
-                "phone": "+62 812-3456-7890",
-                "location": "Jakarta, Indonesia",
-                "password": password,
-            }
-            st.success("Login berhasil!")
-            st.session_state.login_modal_open = False
-            st.switch_page("pages/dashboard.py")
+        if not email or not password:
+            st.error("Email dan password wajib diisi.")
+        elif DatabaseManager is None:
+            st.error("Database tidak tersedia. Pastikan dependencies terinstall.")
         else:
-            st.error("Email atau password salah.")
+            db = DatabaseManager()
+            user = db.get_user_by_email(email.strip(), password)
+            if user:
+                st.session_state.logged_in = True
+                st.session_state.user = user
+                st.success("Login berhasil!")
+                st.session_state.login_modal_open = False
+                st.switch_page("pages/dashboard.py")
+            else:
+                st.error("Email atau password salah.")
 
     if cancel_login:
         st.session_state.login_modal_open = False
         st.rerun()
 
     st.markdown('<div class="spacer-sm"></div>', unsafe_allow_html=True)
-    st.markdown('<p style="text-align:center; font-size:12px; color:#9ca3af;">Demo: admin@antara.com / 123</p>', unsafe_allow_html=True)
 
 
 # ── SIGNUP MODAL ──────────────────────────────────────────────────────────────
+def _is_valid_email(email: str) -> bool:
+    return bool(re.match(r'^[\w\.-]+@[\w\.-]+\.\w{2,}$', email))
+
+def _is_valid_phone(phone: str) -> bool:
+    digits = re.sub(r'[\s\-\(\)]', '', phone)
+    return bool(re.match(r'^(\+62|62|0)8\d{8,11}$', digits))
+
+def _is_valid_name(name: str) -> bool:
+    stripped = name.strip()
+    return len(stripped) >= 3 and bool(re.match(r'^[A-Za-z\s\'\-\.]+$', stripped))
+
 @st.dialog("Create Account - ANTARA")
 def show_signup_modal():
     st.markdown('<p class="page-eyebrow" style="margin-bottom:4px;">Get Started</p>', unsafe_allow_html=True)
@@ -152,24 +168,35 @@ def show_signup_modal():
             cancel_signup = st.form_submit_button("Cancel", use_container_width=True, type="secondary")
 
     if submit_signup:
+        full_name = full_name.strip()
+        email     = email.strip()
+        phone     = phone.strip()
         if not all([full_name, email, password, conf_pw]):
             st.error("Semua field wajib diisi.")
+        elif not _is_valid_name(full_name):
+            st.error("Nama tidak valid. Minimal 3 karakter, hanya huruf, spasi, tanda hubung, atau titik.")
+        elif not _is_valid_email(email):
+            st.error("Format email tidak valid. Contoh: nama@email.com")
+        elif phone and not _is_valid_phone(phone):
+            st.error("Format nomor telepon tidak valid. Contoh: 08123456789 atau +628123456789")
         elif password != conf_pw:
             st.error("Password tidak cocok.")
         elif len(password) < 6:
             st.error("Password minimal 6 karakter.")
         else:
-            st.session_state.logged_in = True
-            st.session_state.user = {
-                "name": full_name,
-                "email": email,
-                "phone": phone,
-                "location": "Indonesia",
-                "password": password,
-            }
-            st.success("Akun berhasil dibuat!")
-            st.session_state.signup_modal_open = False
-            st.switch_page("pages/dashboard.py")
+            if DatabaseManager is None:
+                st.error("Database tidak tersedia. Pastikan dependencies terinstall.")
+            else:
+                try:
+                    db = DatabaseManager()
+                    user = db.register_user(full_name, email, password, phone)
+                    st.session_state.logged_in = True
+                    st.session_state.user = user
+                    st.success("Akun berhasil dibuat!")
+                    st.session_state.signup_modal_open = False
+                    st.switch_page("pages/dashboard.py")
+                except ValueError:
+                    st.error("Email sudah terdaftar. Silakan gunakan email lain.")
 
     if cancel_signup:
         st.session_state.signup_modal_open = False

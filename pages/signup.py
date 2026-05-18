@@ -6,6 +6,21 @@ Halaman registrasi akun baru.
 
 import streamlit as st
 import os
+import re
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from database import DatabaseManager
+
+def _is_valid_email(email: str) -> bool:
+    return bool(re.match(r'^[\w\.-]+@[\w\.-]+\.\w{2,}$', email))
+
+def _is_valid_phone(phone: str) -> bool:
+    digits = re.sub(r'[\s\-\(\)]', '', phone)
+    return bool(re.match(r'^(\+62|62|0)8\d{8,11}$', digits))
+
+def _is_valid_name(name: str) -> bool:
+    stripped = name.strip()
+    return len(stripped) >= 3 and bool(re.match(r'^[A-Za-z\s\'\-\.]+$', stripped))
 
 st.set_page_config(page_title="Sign Up — ANTARA", layout="centered")
 
@@ -44,23 +59,31 @@ with c_mid:
         st.markdown('<div class="spacer-sm"></div>', unsafe_allow_html=True)
 
         if st.button("Create Account", use_container_width=True):
+            full_name = full_name.strip()
+            email     = email.strip()
+            phone     = phone.strip()
             if not all([full_name, email, password, conf_pw]):
                 st.error("Semua field wajib diisi.")
+            elif not _is_valid_name(full_name):
+                st.error("Nama tidak valid. Minimal 3 karakter, hanya huruf, spasi, tanda hubung, atau titik.")
+            elif not _is_valid_email(email):
+                st.error("Format email tidak valid. Contoh: nama@email.com")
+            elif phone and not _is_valid_phone(phone):
+                st.error("Format nomor telepon tidak valid. Contoh: 08123456789 atau +628123456789")
             elif password != conf_pw:
                 st.error("Password tidak cocok.")
             elif len(password) < 6:
                 st.error("Password minimal 6 karakter.")
             else:
-                st.session_state.logged_in = True
-                st.session_state.user = {
-                    "name":     full_name,
-                    "email":    email,
-                    "phone":    phone,
-                    "location": "Indonesia",
-                    "password": password,
-                }
-                st.success("Akun berhasil dibuat!")
-                st.switch_page("pages/dashboard.py")
+                try:
+                    db = DatabaseManager()
+                    user = db.register_user(full_name, email, password, phone)
+                    st.session_state.logged_in = True
+                    st.session_state.user = user
+                    st.success("Akun berhasil dibuat!")
+                    st.switch_page("pages/dashboard.py")
+                except ValueError:
+                    st.error("Email sudah terdaftar. Silakan gunakan email lain.")
 
         st.markdown('<div class="spacer-sm"></div>', unsafe_allow_html=True)
         st.markdown('<p style="text-align:center; font-size:14px; color:#94a3b8;">Sudah punya akun?</p>', unsafe_allow_html=True)
