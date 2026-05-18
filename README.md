@@ -30,7 +30,7 @@ ANTARA adalah aplikasi web berbasis Streamlit yang **membandingkan harga dan dur
 |---|---|---|
 | TrainScraper (Traveloka KAI) | ✅ Berfungsi | Playwright async, anti-detection, multi-strategy parser |
 | PlaneScraper (tiket.com) | ✅ Berfungsi | Playwright async, deduplikasi, parser maskapai + harga |
-| BusScraper | 🚧 Stub | `NotImplementedError` — arsitektur siap, belum diimplementasi |
+| BusScraper (tiket.com) | ✅ Berfungsi | Playwright async, anti-detection, durasi otomatis, parser operator + harga diskon |
 | Smart Route Optimizer | ✅ Berfungsi | Weighted scoring, multimodal via transit hub, city alias |
 | Price Cache (SQLite) | ✅ Berfungsi | TTL 60 menit, terintegrasi di loading + visualization |
 | Database (4 tabel) | ✅ Berfungsi | search_history, user_preferences, price_cache, saved_routes |
@@ -111,7 +111,7 @@ ANTARA_PROJECT/
 │   ├── base_scraper.py           # Abstract base class, AIRPORT_CODES, STATION_CODES
 │   ├── train_scraper.py          # ✅ Traveloka KAI — Playwright async
 │   ├── plane_scraper.py          # ✅ tiket.com — Playwright async
-│   └── bus_scraper.py            # 🚧 Stub (RedBus — belum diimplementasi)
+│   └── bus_scraper.py            # ✅ tiket.com — Playwright async
 │
 ├── pages/
 │   ├── components/
