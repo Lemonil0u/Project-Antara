@@ -4,6 +4,9 @@ app.py - ANTARA Project
 Entry point utama Streamlit. Halaman home / landing.
 Dilengkapi dengan modal login popup.
 
+MERGE: UI dari temanmu (modal login, form search, popular routes)
+       + database/cache dari fixku (DatabaseManager, price cache 60 menit)
+
 Cara menjalankan:
     streamlit run app.py
 """
@@ -14,10 +17,10 @@ import os
 import streamlit as st
 
 try:
+    from database import DatabaseManager
     from engine.data_source import MultiModalDataSource
     from engine.optimizer import SmartRouteOptimizer
     from models import SearchCriteria
-
     _HAS_ENGINE = True
 except ImportError:
     _HAS_ENGINE = False
@@ -28,16 +31,33 @@ if os.path.exists("style.css"):
     with open("style.css") as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
+# ── DATABASE + OPTIMIZER (dengan price cache) ────────────────────────────────
+# MERGE: tambah DatabaseManager dan db= ke MultiModalDataSource
+# agar price cache aktif (hemat 30-90 detik per re-scrape rute sama)
 if _HAS_ENGINE:
     @st.cache_resource
+    def get_db():
+        return DatabaseManager()
+
+    @st.cache_resource
     def get_optimizer():
-        ds = MultiModalDataSource(headless=True, timeout=30, enabled_modes=["train", "flight"])
+        db = get_db()
+        ds = MultiModalDataSource(
+            headless=True,
+            timeout=30,
+            enabled_modes=["train", "flight"],
+            db=db,               # ← price cache aktif
+            cache_ttl_minutes=60,
+        )
         return SmartRouteOptimizer(data_source=ds)
 
+    db        = get_db()
     optimizer = get_optimizer()
 else:
+    db        = None
     optimizer = None
 
+# ── SESSION STATE ─────────────────────────────────────────────────────────────
 for key, default in [
     ("search_clicked", False),
     ("selected_transport", ["Bus", "Train", "Flight"]),
@@ -72,27 +92,7 @@ def safe_image(path, **kwargs):
         st.image(path, **kwargs)
 
 
-def _run_search(origin, destination, date_str, passengers):
-    if not _HAS_ENGINE:
-        return None
-    criteria = SearchCriteria(
-        origin=origin,
-        destination=destination,
-        departure_date=date_str,
-        passengers=passengers,
-    )
-    with st.spinner("Mencari tiket terbaik..."):
-        result = optimizer.optimize(criteria)
-    st.session_state["search_criteria"] = {
-        "origin": origin,
-        "destination": destination,
-        "date": date_str,
-        "passengers": passengers,
-    }
-    st.session_state["optimizer_result"] = result
-    return result
-
-
+# ── LOGIN MODAL ───────────────────────────────────────────────────────────────
 @st.dialog("Login ke ANTARA")
 def show_login_modal():
     st.markdown('<p class="page-eyebrow" style="margin-bottom:4px;">Welcome Back</p>', unsafe_allow_html=True)
@@ -132,6 +132,7 @@ def show_login_modal():
     st.markdown('<p style="text-align:center; font-size:12px; color:#9ca3af;">Demo: admin@antara.com / 123</p>', unsafe_allow_html=True)
 
 
+# ── SIGNUP MODAL ──────────────────────────────────────────────────────────────
 @st.dialog("Create Account - ANTARA")
 def show_signup_modal():
     st.markdown('<p class="page-eyebrow" style="margin-bottom:4px;">Get Started</p>', unsafe_allow_html=True)
@@ -139,10 +140,10 @@ def show_signup_modal():
 
     with st.form("signup_modal_form", enter_to_submit=True):
         full_name = st.text_input("Full Name", placeholder="Your name", key="modal_fullname")
-        email = st.text_input("Email", placeholder="your@email.com", key="modal_email_signup")
-        phone = st.text_input("Phone Number", placeholder="+62 8xx-xxxx-xxxx", key="modal_phone")
-        password = st.text_input("Password", type="password", placeholder="Minimum 6 characters", key="modal_password_signup")
-        conf_pw = st.text_input("Confirm Password", type="password", placeholder="Repeat password", key="modal_conf_pw")
+        email     = st.text_input("Email", placeholder="your@email.com", key="modal_email_signup")
+        phone     = st.text_input("Phone Number", placeholder="+62 8xx-xxxx-xxxx", key="modal_phone")
+        password  = st.text_input("Password", type="password", placeholder="Minimum 6 characters", key="modal_password_signup")
+        conf_pw   = st.text_input("Confirm Password", type="password", placeholder="Repeat password", key="modal_conf_pw")
         st.markdown('<div class="spacer-sm"></div>', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
@@ -175,6 +176,7 @@ def show_signup_modal():
         st.rerun()
 
 
+# ── HEADER ────────────────────────────────────────────────────────────────────
 h_left, h_right = st.columns([6, 1.8])
 
 with h_left:
@@ -184,7 +186,7 @@ with h_right:
     if st.session_state.logged_in:
         col_user, col_logout = st.columns([1.5, 1])
         with col_user:
-            user_name = st.session_state.user.get("name", "User")
+            user_name = st.session_state.get("user", {}).get("name", "User")
             st.markdown(f'<p style="font-size:13px; color:#64748b; margin:0; padding:8px 0;">User {user_name}</p>', unsafe_allow_html=True)
         with col_logout:
             if st.button("Logout", use_container_width=True):
@@ -208,6 +210,7 @@ if st.session_state.login_modal_open:
 if st.session_state.signup_modal_open:
     show_signup_modal()
 
+# ── HERO ──────────────────────────────────────────────────────────────────────
 st.markdown('<div class="spacer-md"></div>', unsafe_allow_html=True)
 
 _, c_hero, _ = st.columns([1, 2, 1])
@@ -226,6 +229,7 @@ with c_hero:
 
 st.markdown('<div class="spacer-sm"></div>', unsafe_allow_html=True)
 
+# ── SEARCH FORM ───────────────────────────────────────────────────────────────
 _, c_mid, _ = st.columns([1, 3, 1])
 
 with c_mid:
@@ -250,20 +254,20 @@ with c_mid:
             if from_city == to_city:
                 st.warning("Kota asal dan tujuan tidak boleh sama.")
             else:
-                st.session_state.origin = from_city
-                st.session_state.destination = to_city
+                st.session_state.origin         = from_city
+                st.session_state.destination    = to_city
                 st.session_state.departure_date = str(date_input)
-                st.session_state.passengers = 1
+                st.session_state.passengers     = 1
                 st.switch_page("pages/loading.py")
 
+# ── POPULAR ROUTES ────────────────────────────────────────────────────────────
 st.markdown('<div class="spacer-lg"></div>', unsafe_allow_html=True)
-
 st.markdown('<p class="section-title">Popular Routes</p>', unsafe_allow_html=True)
 
 r1, r2, r3 = st.columns(3)
 POPULAR = [
     ("assets/train.png", "Train", "#3b82f6", "Tugu Yogyakarta Station"),
-    ("assets/bus.png", "Bus", "#22c55e", "Blok M Bus Terminal"),
+    ("assets/bus.png",   "Bus",   "#22c55e", "Blok M Bus Terminal"),
     ("assets/plane.png", "Plane", "#f97316", "Soekarno-Hatta Airport"),
 ]
 
@@ -271,7 +275,6 @@ for col, (img_path, title, color, subtitle) in zip([r1, r2, r3], POPULAR):
     with col:
         b64 = get_base64_image(img_path)
         img_html = f'<img src="data:image/png;base64,{b64}" style="width:100%; border-radius:12px;">' if b64 else ""
-
         st.markdown(
             f"""
         <div class="route-tile">
