@@ -206,8 +206,7 @@ with h_right:
 
 if st.session_state.login_modal_open:
     show_login_modal()
-
-if st.session_state.signup_modal_open:
+elif st.session_state.signup_modal_open:
     show_signup_modal()
 
 # ── HERO ──────────────────────────────────────────────────────────────────────
