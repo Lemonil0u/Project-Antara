@@ -1,20 +1,23 @@
 """
 database/database.py — ANTARA Project
 =====================================
-Lapisan persistensi SQLite untuk ANTARA. Mengelola 4 tabel:
+Lapisan persistensi SQLite untuk ANTARA. Mengelola 5 tabel:
 
   1. search_history    — riwayat pencarian + ringkasan rute terbaik (JSON)
   2. user_preferences  — preferensi user (bahasa, currency, dark mode, dll)
   3. price_cache       — cache hasil scrape agar tidak ulang scraping rute sama
   4. saved_routes      — bookmark user atas rute favorit (CRUD)
+  5. users             — akun user (registrasi & login)
 
 Prinsip:
   - Raw sqlite3 (no ORM) → ringan, mudah dijelaskan saat sidang.
   - Setiap operasi pakai context manager `with sqlite3.connect()` → auto-commit / rollback.
   - JSON dipakai untuk menyimpan objek kompleks (RouteCombo) di kolom TEXT.
   - Semua method aman terhadap data hilang (tidak crash).
+  - Password di-hash SHA-256 sebelum disimpan (tidak pernah plain-text).
 """
 
+import hashlib
 import json
 import sqlite3
 from datetime import datetime
@@ -112,6 +115,19 @@ class DatabaseManager:
                     notes      TEXT DEFAULT '',
                     starred    INTEGER DEFAULT 0,
                     saved_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # 5. Users (akun registrasi)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    full_name    TEXT NOT NULL,
+                    email        TEXT NOT NULL UNIQUE,
+                    phone        TEXT DEFAULT '',
+                    password_hash TEXT NOT NULL,
+                    location     TEXT DEFAULT 'Indonesia',
+                    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             conn.commit()
@@ -364,6 +380,70 @@ class DatabaseManager:
     # ─────────────────────────────────────────────────────────────────────────
     #  UTILITAS
     # ─────────────────────────────────────────────────────────────────────────
+
+    # ─────────────────────────────────────────────────────────────────────────
+    #  TABEL 5: USERS
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _hash_password(password: str) -> str:
+        return hashlib.sha256(password.encode()).hexdigest()
+
+    def register_user(self, full_name: str, email: str, password: str,
+                      phone: str = "", location: str = "Indonesia") -> Dict[str, Any]:
+        """
+        Daftarkan user baru. Return dict user jika berhasil.
+        Raise ValueError jika email sudah terdaftar.
+        """
+        password_hash = self._hash_password(password)
+        try:
+            with self._connect() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    INSERT INTO users (full_name, email, phone, password_hash, location)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (full_name, email.lower(), phone, password_hash, location))
+                conn.commit()
+                return {
+                    "id": cur.lastrowid,
+                    "name": full_name,
+                    "email": email.lower(),
+                    "phone": phone,
+                    "location": location,
+                }
+        except sqlite3.IntegrityError:
+            raise ValueError(f"Email '{email}' sudah terdaftar.")
+
+    def get_user_by_email(self, email: str, password: str) -> Optional[Dict[str, Any]]:
+        """
+        Login: cari user by email + verifikasi password.
+        Return dict user jika cocok, None jika tidak ditemukan / salah password.
+        """
+        password_hash = self._hash_password(password)
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, full_name, email, phone, location
+                FROM users
+                WHERE email = ? AND password_hash = ?
+            """, (email.lower(), password_hash))
+            row = cur.fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row["id"],
+            "name": row["full_name"],
+            "email": row["email"],
+            "phone": row["phone"],
+            "location": row["location"],
+        }
+
+    def email_exists(self, email: str) -> bool:
+        """Cek apakah email sudah terdaftar (untuk validasi sebelum register)."""
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT 1 FROM users WHERE email = ?", (email.lower(),))
+            return cur.fetchone() is not None
 
     def __repr__(self) -> str:
         return f"DatabaseManager(db_path='{self.db_path}')"
