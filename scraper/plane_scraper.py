@@ -387,17 +387,16 @@ class PlaneScraper(BaseScraper):
     ) -> Optional[TransportSegment]:
         try:
             departure_time = self._parse_time(date_str, item["jam_berangkat"])
-            arrival_time   = self._parse_time(date_str, item["jam_tiba"])
 
-            # Handle over-midnight: arrival sebelum departure → +1 hari
-            if arrival_time < departure_time:
-                arrival_time += timedelta(days=1)
-
-            # Pakai durasi_menit dari hasil parsing teks jika ada,
-            # fallback ke selisih arrival - departure
-            if item["durasi_menit"] > 0:
+            # Jika ada durasi dari teks, hitung arr_time dari dep_time + durasi
+            # (lebih akurat, menangani penerbangan lewat tengah malam)
+            if item.get("durasi_menit", 0) > 0:
+                arrival_time     = departure_time + timedelta(minutes=item["durasi_menit"])
                 duration_minutes = item["durasi_menit"]
             else:
+                arrival_time = self._parse_time(date_str, item["jam_tiba"])
+                if arrival_time < departure_time:
+                    arrival_time += timedelta(days=1)
                 duration_minutes = int(
                     (arrival_time - departure_time).total_seconds() / 60
                 )

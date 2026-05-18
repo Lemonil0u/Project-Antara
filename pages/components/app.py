@@ -32,7 +32,7 @@ if os.path.exists("style.css"):
 if _HAS_ENGINE:
     @st.cache_resource
     def get_optimizer():
-        ds = MultiModalDataSource(headless=True, timeout=30, enabled_modes=["train", "flight"])
+        ds = MultiModalDataSource(headless=True, timeout=30, enabled_modes=["train", "flight", "bus"])
         return SmartRouteOptimizer(data_source=ds)
     optimizer = get_optimizer()
 else:
