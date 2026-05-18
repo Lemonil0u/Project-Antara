@@ -46,17 +46,24 @@ TRANSIT_HUBS: Dict[str, List[str]] = {
     "Semarang":       ["Jakarta", "Yogyakarta", "Surabaya", "Solo"],
     "Yogyakarta":     ["Jakarta", "Bandung", "Semarang", "Surabaya", "Solo"],
     "Solo":           ["Semarang", "Yogyakarta", "Surabaya"],
-    "Surabaya":       ["Jakarta", "Semarang", "Yogyakarta", "Bali", "Malang"],
-    "Malang":         ["Surabaya", "Bali"],
+    "Surabaya":       ["Jakarta", "Semarang", "Yogyakarta", "Bali", "Denpasar", "Malang"],
+    "Malang":         ["Surabaya", "Bali", "Denpasar"],
     "Bali":           ["Surabaya", "Jakarta", "Lombok"],
-    "Lombok":         ["Bali", "Surabaya"],
+    "Denpasar":       ["Surabaya", "Jakarta", "Lombok"],  # Alias Bali
+    "Lombok":         ["Bali", "Denpasar", "Surabaya"],
     "Medan":          ["Jakarta", "Padang", "Batam"],
     "Padang":         ["Medan", "Jakarta"],
     "Batam":          ["Medan", "Jakarta"],
-    "Makassar":       ["Jakarta", "Surabaya", "Bali"],
+    "Makassar":       ["Jakarta", "Surabaya", "Bali", "Denpasar"],
     "Manado":         ["Makassar", "Jakarta"],
     "Palembang":      ["Jakarta", "Bandar Lampung"],
     "Bandar Lampung": ["Palembang", "Jakarta"],
+}
+
+# Alias mapping: nama alternatif kota → nama kanonik
+CITY_ALIASES = {
+    "Denpasar": "Bali",   # Saat scrape pesawat, "Bali" lebih umum
+    # Tambah alias lain di sini bila perlu
 }
 
 TRAIN_CITIES = {
@@ -64,9 +71,10 @@ TRAIN_CITIES = {
     "Solo", "Surabaya", "Malang", "Cirebon", "Purwokerto",
 }
 FLIGHT_CITIES = {
-    "Jakarta", "Surabaya", "Bali", "Medan", "Makassar",
+    "Jakarta", "Surabaya", "Bali", "Denpasar", "Medan", "Makassar",
     "Yogyakarta", "Semarang", "Bandung", "Batam", "Lombok",
     "Manado", "Padang", "Palembang", "Bandar Lampung", "Malang",
+    "Balikpapan", "Pontianak", "Banjarmasin", "Pekanbaru",
 }
 
 # Operator per moda
@@ -135,21 +143,33 @@ ROUTE_DURATION_TABLE: Dict[Tuple[str, str], Dict[str, Tuple[int, int]]] = {
 }
 
 # Constraints transfer multi-modal
-MIN_TRANSFER_WAIT = 60   # menit
-MAX_TRANSFER_WAIT = 180  # menit
+# Catatan: 60-300 menit (1-5 jam) untuk akomodasi transfer multi-modal
+# yang butuh waktu check-in bandara (1.5-2 jam) + buffer antar-stasiun
+MIN_TRANSFER_WAIT = 60   # menit (1 jam minimum)
+MAX_TRANSFER_WAIT = 300  # menit (5 jam maksimum)
 
 # Bobot weighted scoring
 WEIGHT_PRICE    = 0.6
 WEIGHT_DURATION = 0.4
 
 
+def _resolve_alias(city: str) -> str:
+    """Resolve nama alias ke nama kanonik di ROUTE_PRICE_TABLE."""
+    return CITY_ALIASES.get(city, city)
+
+
 def _normalize_key(a: str, b: str) -> Tuple[str, str]:
-    """Kembalikan (a, b) atau (b, a) sesuai yang ada di ROUTE_PRICE_TABLE."""
-    if (a, b) in ROUTE_PRICE_TABLE:
-        return (a, b)
-    if (b, a) in ROUTE_PRICE_TABLE:
-        return (b, a)
-    return (a, b)
+    """
+    Kembalikan (a, b) atau (b, a) sesuai yang ada di ROUTE_PRICE_TABLE.
+    Resolve alias dulu (e.g. Denpasar → Bali).
+    """
+    a_canon = _resolve_alias(a)
+    b_canon = _resolve_alias(b)
+    if (a_canon, b_canon) in ROUTE_PRICE_TABLE:
+        return (a_canon, b_canon)
+    if (b_canon, a_canon) in ROUTE_PRICE_TABLE:
+        return (b_canon, a_canon)
+    return (a_canon, b_canon)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -189,7 +209,7 @@ class DummyDataGenerator:
             dur_range   = self._get_duration_range(key, mode)
             operators   = self._get_operators(mode)
 
-            n_options = self._rng.randint(2, 4)
+            n_options = self._rng.randint(4, 7)   # Lebih banyak segmen per moda → peluang multimodal lebih tinggi
             for _ in range(n_options):
                 seg = self._make_segment(
                     mode, origin, destination, base_date,
@@ -385,12 +405,24 @@ class SmartRouteOptimizer:
     # ─────────────────────────────────────────────────────────────────────────
 
     def _find_transit_cities(self, origin: str, destination: str) -> List[str]:
-        origin_neighbors = set(TRANSIT_HUBS.get(origin, []))
-        dest_neighbors   = set(TRANSIT_HUBS.get(destination, []))
+        """
+        Cari kota transit yang valid antara origin dan destination.
+
+        Logika:
+          1. Cari intersection neighbors origin & destination di TRANSIT_HUBS.
+          2. Kalau salah satu kota tidak terdaftar (kota baru/kecil),
+             pakai DEFAULT_TRANSIT_HUBS sebagai kandidat universal.
+        """
+        # Default hubs untuk kota-kota tidak terdaftar — kota besar yang
+        # umumnya jadi titik transit di Indonesia
+        DEFAULT_TRANSIT_HUBS = ["Jakarta", "Surabaya", "Yogyakarta", "Semarang", "Bandung"]
+
+        origin_neighbors = set(TRANSIT_HUBS.get(origin, DEFAULT_TRANSIT_HUBS))
+        dest_neighbors   = set(TRANSIT_HUBS.get(destination, DEFAULT_TRANSIT_HUBS))
         candidates = origin_neighbors & dest_neighbors
         candidates |= {
-            c for c in TRANSIT_HUBS.get(destination, [])
-            if c in TRANSIT_HUBS.get(origin, [])
+            c for c in TRANSIT_HUBS.get(destination, DEFAULT_TRANSIT_HUBS)
+            if c in TRANSIT_HUBS.get(origin, DEFAULT_TRANSIT_HUBS)
         }
         candidates.discard(origin)
         candidates.discard(destination)
