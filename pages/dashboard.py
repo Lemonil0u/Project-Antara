@@ -142,10 +142,17 @@ with c_mid:
     with st.container(border=True):
         col1, col2, col3 = st.columns(3)
 
+        # FIX: kalau ada hasil pencarian terakhir, default widget = rute itu
+        # supaya user tidak bingung "kok widget reset?"
+        _last_origin      = st.session_state.get("origin")
+        _last_destination = st.session_state.get("destination")
+        _default_from_idx = CITIES.index(_last_origin) if _last_origin in CITIES else 0
+        _default_to_idx   = CITIES.index(_last_destination) if _last_destination in CITIES else 1
+
         with col1:
-            from_city = st.selectbox("From", CITIES, index=0, key="from_dash")
+            from_city = st.selectbox("From", CITIES, index=_default_from_idx, key="from_dash")
         with col2:
-            to_city = st.selectbox("To", CITIES, index=1, key="to_dash")
+            to_city = st.selectbox("To", CITIES, index=_default_to_idx, key="to_dash")
         with col3:
             travel_date = st.date_input("Date", key="date_dash")
 
@@ -155,45 +162,13 @@ with c_mid:
             if from_city == to_city:
                 st.warning("Kota asal dan tujuan tidak boleh sama.")
             else:
-                st.session_state.searching = True
-                st.session_state.search_clicked = False
-                st.rerun()
-
-# ── LOADING (inline) ──────────────────────────────────────────
-if st.session_state.searching:
-    st.markdown('<div class="spacer-lg"></div>', unsafe_allow_html=True)
-
-    _, c_load, _ = st.columns([1, 2, 1])
-    with c_load:
-        if os.path.exists("assets/logo_antara.png"):
-            st.image("assets/logo_antara.png", width=100)
-
-        st.markdown("""
-        <div class="loading-wrap">
-            <p class="loading-title">Mencari Rute Terbaik...</p>
-            <p class="loading-sub">Sedang membandingkan semua opsi transportasi untukmu</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        progress = st.progress(0)
-        status_text = st.empty()
-        messages = [
-            "Searching flights...",
-            "Searching trains...",
-            "Searching buses...",
-            "Comparing prices...",
-        ]
-        for i in range(100):
-            progress.progress(i + 1)
-            status_text.markdown(
-                f"<p style='text-align:center; color:#94a3b8; font-size:14px;'>{messages[(i // 25) % 4]}</p>",
-                unsafe_allow_html=True,
-            )
-            time.sleep(0.018)
-
-    st.session_state.searching = False
-    st.session_state.search_clicked = True
-    st.rerun()
+                # MERGE: arahkan ke loading.py (real scraper + progress bar)
+                # sama seperti flow dari app.py
+                st.session_state.origin         = from_city
+                st.session_state.destination    = to_city
+                st.session_state.departure_date = str(travel_date)
+                st.session_state.passengers     = 1
+                st.switch_page("pages/loading.py")
 
 # ── POPULAR ROUTES ────────────────────────────────────────────
 if not st.session_state.search_clicked:
@@ -232,10 +207,15 @@ st.markdown('<div class="spacer-lg"></div>', unsafe_allow_html=True)
 top_left, top_right = st.columns([2, 3])
 
 with top_left:
+    # FIX: pakai tanggal dari pencarian (session_state.departure_date),
+    # bukan widget date_input yang bisa berubah-ubah
+    _shown_date = st.session_state.get("departure_date", str(travel_date))
+    _shown_from = st.session_state.get("origin", from_city)
+    _shown_to   = st.session_state.get("destination", to_city)
     st.markdown(f"""
     <p class="section-title" style="margin-bottom:4px;">Recommended Routes</p>
-    <p style="font-size:16px; font-weight:700; color:#1e2a52; margin:0;">{from_city} → {to_city}</p>
-    <p style="font-size:13px; color:#94a3b8; margin:2px 0 0;">{travel_date}</p>
+    <p style="font-size:16px; font-weight:700; color:#1e2a52; margin:0;">{_shown_from} → {_shown_to}</p>
+    <p style="font-size:13px; color:#94a3b8; margin:2px 0 0;">{_shown_date}</p>
     """, unsafe_allow_html=True)
 
 with top_right:
@@ -276,9 +256,26 @@ with c_filter:
     st.markdown("""
     <div class="filter-panel">
         <p class="filter-panel-title">Refine Your Search</p>
-        <p class="filter-section-label">Airlines</p>
+        <p class="filter-section-label">Sort By</p>
     </div>
     """, unsafe_allow_html=True)
+
+    # FIX: Dropdown Sort - sesuai visi user pilih sendiri prioritas
+    # "Cheapest" = murni harga, "Fastest" = murni durasi, "Best Value" = weighted
+    sort_by = st.selectbox(
+        "Sort By",
+        ["Cheapest", "Fastest", "Best Value"],
+        index=0,
+        key="sort_mode",
+        label_visibility="collapsed",
+        help=(
+            "Cheapest: urut harga termurah dulu (kereta sering menang). "
+            "Fastest: urut durasi tercepat (pesawat biasanya menang). "
+            "Best Value: kombinasi 60% harga + 40% durasi."
+        ),
+    )
+
+    st.markdown('<p class="filter-section-label" style="margin-top:16px;">Airlines</p>', unsafe_allow_html=True)
 
     st.selectbox(
         "Airline Mode",
@@ -298,8 +295,10 @@ with c_filter:
     st.markdown('<p class="filter-section-label" style="margin-top:16px;">Price Range</p>', unsafe_allow_html=True)
 
     price_max = 5_000_000
+    # FIX: tambah step=50_000 supaya slider naik per Rp 50.000, bukan per Rp 1
     price_range = st.slider(
         "Price", 0, price_max, (0, price_max),
+        step=50_000,
         format="Rp %d",
         label_visibility="collapsed",
         key="f_price"
@@ -323,12 +322,58 @@ with c_filter:
 # ── HASIL ─────────────────────────────────────────────────────
 with c_results:
 
-    TRANSPORT_DATA = [
-        {"type": "Bus",    "name": "Haryanto",        "time": "19:00 - 07:00", "duration": "12h",    "price": "Rp 250.000",   "price_raw": 250_000,   "rating": "4.5"},
-        {"type": "Train",  "name": "Gajah Mungkur",   "time": "18:00 - 04:00", "duration": "10h",    "price": "Rp 350.000",   "price_raw": 350_000,   "rating": "4.7"},
-        {"type": "Flight", "name": "Garuda Indonesia", "time": "08:00 - 10:15", "duration": "2h 15m", "price": "Rp 1.450.000", "price_raw": 1_450_000, "rating": "4.9"},
-        {"type": "Flight", "name": "Lion Air",         "time": "09:00 - 11:30", "duration": "2h 30m", "price": "Rp 950.000",   "price_raw": 950_000,   "rating": "4.3"},
-    ]
+    # MERGE: ganti dummy data dengan hasil optimizer nyata
+    # Ambil dari session_state["optimizer_result"] yang diisi oleh loading.py
+    result = st.session_state.get("optimizer_result")
+    TRANSPORT_DATA = []
+
+    if result and result.total_options > 0:
+        for combo in result.all_combos:
+            # Tentukan tipe transport dari moda utama
+            if combo.modes_used:
+                mode = combo.modes_used[0]
+                if mode == "flight":
+                    t_type = "Flight"
+                elif mode == "train":
+                    t_type = "Train"
+                else:
+                    t_type = "Bus"
+            else:
+                t_type = "Train"
+
+            first_seg = combo.segments[0]
+            last_seg  = combo.segments[-1]
+
+            # Bangun route_details dari nama-nama kota di segmen
+            route_cities = [first_seg.origin] + [s.destination for s in combo.segments]
+            route_details = route_cities
+
+            # Auto-generate amenities berdasarkan moda
+            if t_type == "Flight":
+                amenities = ["Bagasi 20kg", "Snack/Minuman", "AC", "Entertainment", "USB Charging"]
+            elif t_type == "Train":
+                amenities = ["AC", "Kursi Recliner", "Restorasi", "Toilet", "Stop Kontak"]
+            else:
+                amenities = ["AC", "Reclining Seat", "Toilet", "Hiburan"]
+
+            TRANSPORT_DATA.append({
+                "combo_id":         combo.id,  # FIX: tambah ID unik dari combo
+                "type":             t_type,
+                "name":             combo.mode_label + " " + first_seg.provider,
+                "time":             f"{first_seg.departure_time.strftime('%H:%M')} - {last_seg.arrival_time.strftime('%H:%M')}",
+                "duration":         combo.total_duration_str,
+                "duration_minutes": combo.total_duration_minutes,  # FIX: numeric untuk sort
+                "price":            combo.total_price_str,
+                "price_raw":        combo.total_price,
+                "rating":           str(combo.average_rating) if combo.average_rating else "4.5",
+                "route_details":    route_details,
+                "amenities":     amenities,
+                "about":         f"Perjalanan dari {first_seg.origin} ke {last_seg.destination} menggunakan {first_seg.provider}. Total durasi {combo.total_duration_str}.",
+            })
+    else:
+        # Fallback: tidak ada hasil scraping
+        st.info("Tidak ada hasil ditemukan untuk rute ini. Coba ubah kota atau tanggal.")
+        st.stop()
 
     # --- LOGIKA FILTER AIRLINES ---
     if st.session_state.airline_filter_mode == "Custom Selection":
@@ -359,9 +404,31 @@ with c_results:
         )
     ]
 
+    # FIX: Sortir berdasarkan pilihan user di dropdown "Sort By"
+    # - Cheapest: harga termurah dulu
+    # - Fastest:  durasi tercepat (pakai duration_minutes numeric, bukan string)
+    # - Best Value: weighted score 60% harga + 40% durasi (sama dengan optimizer)
+    sort_mode = st.session_state.get("sort_mode", "Cheapest")
     if filtered:
+        if sort_mode == "Cheapest":
+            filtered.sort(key=lambda x: x["price_raw"])
+        elif sort_mode == "Fastest":
+            filtered.sort(key=lambda x: x["duration_minutes"])
+        else:  # Best Value
+            prices = [x["price_raw"] for x in filtered]
+            durations = [x["duration_minutes"] for x in filtered]
+            min_p, max_p = min(prices), max(prices)
+            min_d, max_d = min(durations), max(durations)
+            def _score(x):
+                pr = (x["price_raw"] - min_p) / (max_p - min_p) if max_p != min_p else 0
+                dr = (x["duration_minutes"] - min_d) / (max_d - min_d) if max_d != min_d else 0
+                return 0.6 * pr + 0.4 * dr
+            filtered.sort(key=_score)
+
+    if filtered:
+        # FIX: pakai duration_minutes (numeric), bukan duration string yang sort-nya salah
         cheapest = min(filtered, key=lambda x: x["price_raw"])
-        fastest  = min(filtered, key=lambda x: x["duration"])
+        fastest  = min(filtered, key=lambda x: x["duration_minutes"])
 
         hc1, hc2 = st.columns(2)
         with hc1:
@@ -395,7 +462,7 @@ with c_results:
         </div>
         """, unsafe_allow_html=True)
     else:
-        for item in filtered:
+        for idx, item in enumerate(filtered):
             color = COLOR_MAP.get(item["type"], "#26a69a")
             is_saved = get_route_identity(item, from_city, to_city) in saved_route_ids
             saved_badge = '<span style="color:#f59e0b; font-size:16px; margin-left:8px;">★</span>' if is_saved else ""
@@ -417,7 +484,11 @@ with c_results:
 
             with btn_col:
                 st.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
-                if st.button("Select", key=f"sel_{item['name']}", use_container_width=True):
+                # FIX: key unik pakai combo_id (dari optimizer) + index sebagai safety net
+                # Sebelumnya pakai f"sel_{item['name']}" yang bisa duplicate kalau
+                # ada 2 combo dengan nama provider sama (e.g. 2 flight Citilink)
+                _unique_key = f"sel_{item.get('combo_id', 'unknown')}_{idx}"
+                if st.button("Select", key=_unique_key, use_container_width=True):
                     st.session_state.selected_route  = item
                     st.session_state.selected_from   = from_city
                     st.session_state.selected_to     = to_city

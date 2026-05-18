@@ -182,11 +182,12 @@ class TestOptimizer:
     def test_multimodal_combos_have_waiting_time(self, optimizer, criteria_basic):
         result = optimizer.optimize(criteria_basic)
         for c in result.multimodal_options:
-            # Per leg: 60–180 menit. Total waiting_time = jumlah semua leg.
-            # Combo 2 segmen: 60–180. Combo 3 segmen: 120–360.
+            # Per leg: 60–300 menit (MAX_TRANSFER_WAIT=300 untuk akomodasi
+            # transfer kereta→pesawat yang butuh check-in 1.5-2 jam).
+            # Total waiting_time = jumlah semua leg.
             n_legs = len(c.segments) - 1
             assert c.waiting_time_minutes >= 60 * n_legs
-            assert c.waiting_time_minutes <= 180 * n_legs
+            assert c.waiting_time_minutes <= 300 * n_legs
 
 
 # ─────────────────────────────────────────────────────────────────────────────

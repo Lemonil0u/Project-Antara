@@ -22,6 +22,7 @@ Dengan cache:
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import datetime
 from typing import List, Optional
@@ -32,24 +33,38 @@ logger = logging.getLogger(__name__)
 
 
 # ── Kota yang punya layanan kereta ──────────────────────────────────────────
+# Note: Ini hanya "known cities" — kota tidak terdaftar TETAP dicoba (soft filter)
 TRAIN_CITIES = {
     "Jakarta", "Bandung", "Semarang", "Yogyakarta",
     "Solo", "Surabaya", "Malang", "Cirebon", "Purwokerto",
+    "Bogor", "Tegal", "Pekalongan", "Madiun", "Kediri",
 }
 
 # ── Kota yang punya bandara komersial ───────────────────────────────────────
 FLIGHT_CITIES = {
-    "Jakarta", "Surabaya", "Bali", "Medan", "Makassar",
+    "Jakarta", "Surabaya", "Bali", "Denpasar", "Medan", "Makassar",
     "Yogyakarta", "Semarang", "Bandung", "Batam", "Lombok",
-    "Manado", "Padang", "Palembang", "Bandar Lampung", "Malang", "Denpasar",
+    "Manado", "Padang", "Palembang", "Bandar Lampung", "Malang",
+    "Balikpapan", "Pontianak", "Banjarmasin", "Pekanbaru", "Jayapura",
+    "Ambon", "Kupang", "Solo", "Banda Aceh",
 }
 
 # ── Kota Jawa untuk bus (default) + cross-pulau khusus ──────────────────────
 BUS_JAWA = {
     "Jakarta", "Bandung", "Semarang", "Yogyakarta",
-    "Solo", "Surabaya", "Malang",
+    "Solo", "Surabaya", "Malang", "Bogor", "Cirebon",
 }
-BUS_CROSS_PULAU = {("Surabaya", "Bali"), ("Bali", "Surabaya")}
+BUS_CROSS_PULAU = {
+    ("Surabaya", "Bali"), ("Bali", "Surabaya"),
+    ("Surabaya", "Denpasar"), ("Denpasar", "Surabaya"),
+}
+
+# ── Kota-kota Jawa (untuk fallback heuristic train) ─────────────────────────
+JAWA_REGION = {
+    "Jakarta", "Bogor", "Depok", "Tangerang", "Bekasi", "Bandung",
+    "Cirebon", "Tegal", "Pekalongan", "Semarang", "Solo", "Yogyakarta",
+    "Madiun", "Kediri", "Malang", "Surabaya", "Purwokerto",
+}
 
 
 class MultiModalDataSource:
@@ -122,6 +137,10 @@ class MultiModalDataSource:
     ) -> List[TransportSegment]:
         """
         Ambil semua TransportSegment dari semua scraper yang relevan.
+        
+        Optimasi: scraping berjalan PARALEL menggunakan thread pool.
+        Train + flight dijalankan bersamaan, jadi total waktu ≈ max(train, flight),
+        bukan train + flight.
 
         Identik dengan DummyDataGenerator.get_segments() — optimizer tidak
         perlu diubah saat dipindah dari dummy ke nyata.
@@ -129,6 +148,8 @@ class MultiModalDataSource:
         requested_modes = modes or list(self._scrapers.keys())
         all_segments: List[TransportSegment] = []
 
+        # ── Bangun list task yang perlu di-scrape (cache miss) ──────────────
+        scrape_tasks = []   # list of (mode, scraper)
         for mode, scraper in self._scrapers.items():
             if mode not in requested_modes:
                 continue
@@ -139,37 +160,83 @@ class MultiModalDataSource:
                 )
                 continue
 
-            # ── Cek cache dulu ───────────────────────────────────────────────
+            # ── Cek cache dulu (sequential — cepat) ──────────────────────────
             cached = self._get_from_cache(origin, destination, date_str, mode)
             if cached is not None:
                 logger.info(f"[DataSource] {mode}: {len(cached)} segmen dari cache.")
                 all_segments.extend(cached)
                 continue
 
-            # ── Cache miss → scrape ──────────────────────────────────────────
-            logger.info(f"[DataSource] {mode} scrape: {origin}→{destination} ({date_str})")
-            try:
-                segs = scraper.get_segments(
-                    origin=origin, destination=destination,
-                    date_str=date_str, passengers=passengers,
-                    modes=[mode],
-                )
-            except NotImplementedError:
-                logger.info(f"[DataSource] {mode}: scraper belum diimplementasi, skip.")
-                continue
-            except Exception as e:
-                logger.error(f"[DataSource] {mode}: scrape error: {e}")
-                continue
+            # Cache miss → masuk antrian untuk scraping paralel
+            scrape_tasks.append((mode, scraper))
 
-            logger.info(f"[DataSource] {mode}: {len(segs)} segmen ditemukan.")
-            all_segments.extend(segs)
+        # ── Jalankan semua scraper yang cache-miss SECARA PARALEL ───────────
+        if scrape_tasks:
+            logger.info(
+                f"[DataSource] Scraping paralel: {[m for m, _ in scrape_tasks]} "
+                f"untuk {origin}→{destination} ({date_str})"
+            )
+            with ThreadPoolExecutor(max_workers=len(scrape_tasks)) as pool:
+                # Submit semua scraper ke thread pool
+                future_to_mode = {
+                    pool.submit(
+                        self._safe_scrape, scraper, origin, destination,
+                        date_str, passengers, mode,
+                    ): mode
+                    for mode, scraper in scrape_tasks
+                }
 
-            # Simpan ke cache jika ada hasil
-            if segs and self.db is not None:
-                self._save_to_cache(origin, destination, date_str, mode, segs)
+                # Tunggu hasil satu per satu, urutan tergantung mana yang selesai duluan
+                for future in as_completed(future_to_mode):
+                    mode = future_to_mode[future]
+                    try:
+                        segs = future.result()
+                    except Exception as e:
+                        logger.error(f"[DataSource] {mode}: future error: {e}")
+                        continue
+
+                    if segs is None:
+                        # NotImplementedError atau error fatal — sudah dilog di _safe_scrape
+                        continue
+
+                    logger.info(f"[DataSource] {mode}: {len(segs)} segmen ditemukan.")
+                    all_segments.extend(segs)
+
+                    # Simpan ke cache jika ada hasil
+                    if segs and self.db is not None:
+                        self._save_to_cache(origin, destination, date_str, mode, segs)
 
         all_segments.sort(key=lambda s: s.departure_time)
         return all_segments
+
+    def _safe_scrape(
+        self,
+        scraper,
+        origin: str,
+        destination: str,
+        date_str: str,
+        passengers: int,
+        mode: str,
+    ) -> Optional[List[TransportSegment]]:
+        """
+        Wrapper aman untuk satu scraper call.
+        
+        Return None jika error fatal (NotImplementedError, exception).
+        Return list of segments jika sukses (mungkin empty list).
+        Dipakai oleh ThreadPoolExecutor.
+        """
+        try:
+            return scraper.get_segments(
+                origin=origin, destination=destination,
+                date_str=date_str, passengers=passengers,
+                modes=[mode],
+            )
+        except NotImplementedError:
+            logger.info(f"[DataSource] {mode}: scraper belum diimplementasi, skip.")
+            return None
+        except Exception as e:
+            logger.error(f"[DataSource] {mode}: scrape error: {e}")
+            return None
 
     # ─────────────────────────────────────────────────────────────────────────
     #  PRIVATE — Cache helpers
@@ -247,15 +314,43 @@ class MultiModalDataSource:
     # ─────────────────────────────────────────────────────────────────────────
 
     def _route_feasible(self, mode: str, origin: str, destination: str) -> bool:
-        """Validasi dasar apakah moda ini bisa beroperasi antara dua kota."""
+        """
+        Filter rute - SOFT filter (hanya block yang jelas tidak mungkin).
+
+        Logika:
+          - TRAIN: hanya di pulau Jawa. Kota di luar Jawa = block firm.
+                   Kota tidak dikenal = boleh coba (mungkin kota kecil di Jawa).
+          - FLIGHT: hampir semua kota besar punya bandara → selalu coba.
+          - BUS  : Jawa + cross-pulau Surabaya-Bali. Lainnya tetap coba.
+
+        Tujuan: rute baru otomatis bekerja TANPA harus declare di whitelist.
+        """
+        # Daftar kota TIDAK di Jawa (untuk firm-block kereta)
+        NON_JAWA = {
+            "Bali", "Denpasar", "Medan", "Makassar", "Lombok", "Padang",
+            "Palembang", "Manado", "Batam", "Balikpapan", "Pontianak",
+            "Banjarmasin", "Pekanbaru", "Jayapura", "Ambon", "Kupang",
+            "Banda Aceh", "Bandar Lampung",
+        }
+
+        # ── TRAIN: firm-block kalau salah satu kota jelas-jelas di luar Jawa
         if mode == "train":
-            return origin in TRAIN_CITIES and destination in TRAIN_CITIES
+            if origin in NON_JAWA or destination in NON_JAWA:
+                return False
+            return True  # Kalau dua-duanya di Jawa atau unknown → coba
+
+        # ── FLIGHT: hampir semua kota besar punya bandara, jadi selalu coba
         if mode == "flight":
-            return origin in FLIGHT_CITIES and destination in FLIGHT_CITIES
+            return True
+
+        # ── BUS: Jawa + cross-pulau khusus. Lainnya tetap coba (soft)
         if mode == "bus":
-            if origin in BUS_JAWA and destination in BUS_JAWA:
-                return True
-            return (origin, destination) in BUS_CROSS_PULAU
+            # Lintas pulau jauh (e.g. Jakarta → Papua) → block
+            if origin in {"Jayapura", "Ambon", "Kupang"} or \
+               destination in {"Jayapura", "Ambon", "Kupang"}:
+                return False
+            return True
+
         return True
 
     def __repr__(self) -> str:
