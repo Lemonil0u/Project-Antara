@@ -4,11 +4,16 @@ pages/visualization.py — ANTARA
 Halaman analitik dan perbandingan transportasi.
 """
 
+import threading
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import time
 import os
+from database import DatabaseManager
+from engine.data_source import MultiModalDataSource
+from engine.optimizer import SmartRouteOptimizer
+from models import SearchCriteria
 from pages.components.sidebar import render_sidebar
 from pages.components.theme import apply_theme
 
@@ -17,6 +22,24 @@ st.set_page_config(page_title="Visualization — ANTARA", layout="wide")
 # ── CSS & THEME ──────────────────────────────────────────────
 with open("style.css") as f:
     st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+# ── OPTIMIZER dengan price cache ─────────────────────────────
+@st.cache_resource
+def get_db():
+    return DatabaseManager()
+
+@st.cache_resource
+def get_optimizer():
+    db = get_db()
+    ds = MultiModalDataSource(
+        headless=True, timeout=30,
+        enabled_modes=["train", "flight"],
+        db=db, cache_ttl_minutes=60,
+    )
+    return SmartRouteOptimizer(data_source=ds)
+
+db        = get_db()
+optimizer = get_optimizer()
 
 apply_theme()
 
@@ -62,11 +85,46 @@ with st.container(border=True):
         if from_city == to_city:
             st.warning("Kota asal dan tujuan tidak boleh sama.")
         else:
-            st.session_state.visual_searching = True
-            st.session_state.visual_search_clicked = False
-            st.rerun()
+            # Cek apakah data pencarian terakhir cocok dengan pilihan sekarang
+            last_criteria = st.session_state.get("search_criteria", {})
+            existing_result = st.session_state.get("optimizer_result")
 
-# ── LOADING ───────────────────────────────────────────────────
+            same_route = (
+                existing_result is not None
+                and last_criteria.get("origin", "").lower() == from_city.lower()
+                and last_criteria.get("destination", "").lower() == to_city.lower()
+                and last_criteria.get("date", "") == str(travel_date)
+            )
+
+            if same_route:
+                # Pakai data yang sudah ada — tidak perlu scrape ulang
+                result = existing_result
+                vis_data = []
+                for combo in result.all_combos:
+                    mode = combo.modes_used[0] if combo.modes_used else "train"
+                    t_type = {"flight": "Flight", "train": "Train", "bus": "Bus"}.get(mode, "Train")
+                    first_seg = combo.segments[0]
+                    vis_data.append({
+                        "type":     t_type,
+                        "name":     first_seg.provider,
+                        "duration": round(combo.total_duration_minutes / 60, 1),
+                        "price":    combo.total_price,
+                        "rating":   combo.average_rating if combo.average_rating else 4.0,
+                    })
+                st.session_state.visualization_results = vis_data
+                st.session_state.vis_from_city    = from_city
+                st.session_state.vis_to_city      = to_city
+                st.session_state.vis_travel_date  = str(travel_date)
+                st.session_state.visual_searching = False
+                st.session_state.visual_search_clicked = True
+                st.rerun()
+            else:
+                # Rute berbeda — perlu scrape baru
+                st.session_state.visual_searching = True
+                st.session_state.visual_search_clicked = False
+                st.rerun()
+
+# ── LOADING + REAL SCRAPING ──────────────────────────────────
 if st.session_state.visual_searching:
     st.markdown('<div class="spacer-lg"></div>', unsafe_allow_html=True)
 
@@ -82,31 +140,76 @@ if st.session_state.visual_searching:
         </div>
         """, unsafe_allow_html=True)
 
-        progress = st.progress(0)
+        progress    = st.progress(0)
         status_text = st.empty()
-        messages = [
+        messages    = [
             "Collecting transportation data...",
             "Comparing ticket prices...",
             "Analyzing duration...",
             "Generating charts...",
         ]
-        for i in range(100):
-            progress.progress(i + 1)
+
+        result_holder = {"result": None}
+
+        def _run_vis_search():
+            criteria = SearchCriteria(
+                origin=from_city,
+                destination=to_city,
+                departure_date=str(travel_date),
+                passengers=1,
+            )
+            result_holder["result"] = optimizer.optimize(criteria)
+
+        thread = threading.Thread(target=_run_vis_search)
+        thread.start()
+
+        progress_value = 0.0
+        message_index  = 0
+        dot_count      = 1
+
+        while thread.is_alive():
+            increment = max(0.08, (100 - progress_value) / 180)
+            progress_value = min(progress_value + increment, 96)
+            progress.progress(int(progress_value))
+            dots = "." * dot_count
             status_text.markdown(
-                f"<p style='text-align:center; color:#94a3b8; font-size:14px;'>{messages[(i // 25) % 4]}</p>",
+                f"<p style='text-align:center; color:#94a3b8; font-size:14px;'>{messages[message_index]}{dots}</p>",
                 unsafe_allow_html=True,
             )
-            time.sleep(0.018)
+            dot_count += 1
+            if dot_count > 3:
+                dot_count = 1
+                message_index = (message_index + 1) % len(messages)
+            time.sleep(0.12)
 
-    st.session_state.visualization_results = [
-        {"type": "Bus",    "name": "Haryanto",        "duration": 12,  "price": 250_000,   "rating": 4.5},
-        {"type": "Train",  "name": "Gajah Mungkur",   "duration": 10,  "price": 350_000,   "rating": 4.7},
-        {"type": "Flight", "name": "Garuda Indonesia", "duration": 2.2, "price": 1_450_000, "rating": 4.9},
-        {"type": "Flight", "name": "Lion Air",         "duration": 2.5, "price": 950_000,   "rating": 4.3},
-    ]
-    st.session_state.visual_searching = False
-    st.session_state.visual_search_clicked = True
-    st.rerun()
+        thread.join()
+        progress.progress(100)
+
+        result = result_holder["result"]
+
+        # Konversi OptimizerResult → format yang dipakai chart
+        vis_data = []
+        if result and result.total_options > 0:
+            for combo in result.all_combos:
+                mode = combo.modes_used[0] if combo.modes_used else "train"
+                t_type = {"flight": "Flight", "train": "Train", "bus": "Bus"}.get(mode, "Train")
+                first_seg = combo.segments[0]
+                vis_data.append({
+                    "type":     t_type,
+                    "name":     first_seg.provider,
+                    "duration": round(combo.total_duration_minutes / 60, 1),
+                    "price":    combo.total_price,
+                    "rating":   combo.average_rating if combo.average_rating else 4.0,
+                })
+
+        # Simpan ke session_state
+        st.session_state.visualization_results      = vis_data
+        st.session_state.vis_from_city              = from_city
+        st.session_state.vis_to_city                = to_city
+        st.session_state.vis_travel_date            = str(travel_date)
+        st.session_state.visual_searching  = False
+        st.session_state.visual_search_clicked = True
+        st.rerun()
 
 # ── VISUALIZATION RESULT ──────────────────────────────────────
 if not st.session_state.visual_search_clicked:
@@ -117,9 +220,18 @@ df = pd.DataFrame(transport_data)
 
 st.markdown('<div class="spacer-md"></div>', unsafe_allow_html=True)
 
+# Ambil kota dari session_state (bukan dari widget, karena page sudah rerun)
+_from_city   = st.session_state.get("vis_from_city", from_city)
+_to_city     = st.session_state.get("vis_to_city", to_city)
+_travel_date = st.session_state.get("vis_travel_date", str(travel_date))
+
+if not transport_data:
+    st.warning("Tidak ada data ditemukan untuk rute ini. Coba rute lain.")
+    st.stop()
+
 st.markdown(f"""
-<h2 style="color:#26a69a; font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; margin-bottom:2px;">{from_city} → {to_city}</h2>
-<p class="page-subtitle">Transportation comparison analytics · {travel_date}</p>
+<h2 style="color:#26a69a; font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; margin-bottom:2px;">{_from_city} → {_to_city}</h2>
+<p class="page-subtitle">Transportation comparison analytics · {_travel_date}</p>
 """, unsafe_allow_html=True)
 
 # ── SUMMARY CARDS ─────────────────────────────────────────────
