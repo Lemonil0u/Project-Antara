@@ -17,6 +17,8 @@ import re
 
 import streamlit as st
 
+from config import SCRAPER_TIMEOUT, SCRAPER_HEADLESS, SCRAPER_ENABLED_MODES, CACHE_TTL_MINUTES
+
 try:
     from database import DatabaseManager
 except ImportError:
@@ -48,12 +50,13 @@ if _HAS_ENGINE:
     def get_optimizer():
         db = get_db()
         ds = MultiModalDataSource(
-            headless=True,
-            timeout=30,
-            enabled_modes=["train", "flight", "bus"],
-            db=db,               # ← price cache aktif
-            cache_ttl_minutes=60,
+            headless=SCRAPER_HEADLESS,
+            timeout=SCRAPER_TIMEOUT,
+            enabled_modes=SCRAPER_ENABLED_MODES,
+            db=db,
+            cache_ttl_minutes=CACHE_TTL_MINUTES,
         )
+
         return SmartRouteOptimizer(data_source=ds)
 
     db        = get_db()

@@ -16,6 +16,7 @@ from engine.optimizer import SmartRouteOptimizer
 from models import SearchCriteria
 from pages.components.sidebar import render_sidebar
 from pages.components.theme import apply_theme
+from config import SCRAPER_TIMEOUT, SCRAPER_HEADLESS, CACHE_TTL_MINUTES
 
 st.set_page_config(page_title="Visualization — ANTARA", layout="wide")
 
@@ -32,9 +33,9 @@ def get_db():
 def get_optimizer():
     db = get_db()
     ds = MultiModalDataSource(
-        headless=True, timeout=30,
+        headless=SCRAPER_HEADLESS, timeout=SCRAPER_TIMEOUT,
         enabled_modes=["train", "flight"],
-        db=db, cache_ttl_minutes=60,
+        db=db, cache_ttl_minutes=CACHE_TTL_MINUTES,
     )
     return SmartRouteOptimizer(data_source=ds)
 

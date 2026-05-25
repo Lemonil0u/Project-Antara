@@ -17,9 +17,11 @@ try:
     from engine.data_source import MultiModalDataSource
     from engine.optimizer import SmartRouteOptimizer
     from models import RouteCombo, SearchCriteria
+    from config import SCRAPER_TIMEOUT, SCRAPER_HEADLESS, SCRAPER_ENABLED_MODES
     _HAS_ENGINE = True
 except ImportError:
     _HAS_ENGINE = False
+    SCRAPER_TIMEOUT, SCRAPER_HEADLESS, SCRAPER_ENABLED_MODES = 30, True, ["train", "flight", "bus"]
 
 st.set_page_config(page_title="ANTARA", layout="wide")
 
@@ -32,7 +34,7 @@ if os.path.exists("style.css"):
 if _HAS_ENGINE:
     @st.cache_resource
     def get_optimizer():
-        ds = MultiModalDataSource(headless=True, timeout=30, enabled_modes=["train", "flight", "bus"])
+        ds = MultiModalDataSource(headless=SCRAPER_HEADLESS, timeout=SCRAPER_TIMEOUT, enabled_modes=SCRAPER_ENABLED_MODES)
         return SmartRouteOptimizer(data_source=ds)
     optimizer = get_optimizer()
 else:

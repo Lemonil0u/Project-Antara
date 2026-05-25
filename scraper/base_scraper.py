@@ -21,6 +21,10 @@ from typing import List, Optional
 
 from models import TransportSegment
 
+try:
+    from config import SCRAPER_TIMEOUT as _DEFAULT_TIMEOUT, SCRAPER_HEADLESS as _DEFAULT_HEADLESS
+except ImportError:
+    _DEFAULT_TIMEOUT, _DEFAULT_HEADLESS = 30, True
 
 # ── Setup logger sekali di module level ─────────────────────────────────────
 logging.basicConfig(
@@ -59,7 +63,7 @@ class BaseScraper(ABC):
         "Solo": "SLO", "Cirebon": "CN", "Purwokerto": "PWT",
     }
 
-    def __init__(self, headless: bool = True, timeout: int = 30):
+    def __init__(self, headless: bool = _DEFAULT_HEADLESS, timeout: int = _DEFAULT_TIMEOUT):
         """
         Args:
             headless : Jalankan browser tanpa UI (True untuk production).
