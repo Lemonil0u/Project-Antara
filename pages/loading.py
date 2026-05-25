@@ -16,6 +16,9 @@ import streamlit as st
 from database import DatabaseManager
 from engine.data_source import MultiModalDataSource
 from engine.optimizer import SmartRouteOptimizer
+
+from config import SCRAPER_TIMEOUT, SCRAPER_HEADLESS, SCRAPER_ENABLED_MODES, CACHE_TTL_MINUTES
+
 from models import SearchCriteria
 
 st.set_page_config(page_title="Searching... — ANTARA", layout="centered")
@@ -36,11 +39,11 @@ def get_db():
 def get_optimizer():
     db = get_db()
     ds = MultiModalDataSource(
-        headless=True,
-        timeout=30,
-        enabled_modes=["train", "flight", "bus"],
+        headless=SCRAPER_HEADLESS,
+        timeout=SCRAPER_TIMEOUT,
+        enabled_modes=SCRAPER_ENABLED_MODES,
         db=db,
-        cache_ttl_minutes=60,
+        cache_ttl_minutes=CACHE_TTL_MINUTES,
     )
     return SmartRouteOptimizer(data_source=ds)
 
