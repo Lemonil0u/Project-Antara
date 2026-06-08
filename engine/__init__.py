@@ -1,5 +1,5 @@
 """engine/__init__.py — ANTARA Project"""
-from .optimizer import SmartRouteOptimizer, DummyDataGenerator
+from .optimizer import SmartRouteOptimizer
 from .data_source import MultiModalDataSource
 from .local_data import LocalSegmentGenerator
 

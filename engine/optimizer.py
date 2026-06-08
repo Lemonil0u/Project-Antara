@@ -4,16 +4,13 @@ engine/optimizer.py — ANTARA Project
 Smart Route Optimizer.
 
 Komponen:
-  1. DummyDataGenerator — TransportSegment palsu untuk unit test.
-     JANGAN dipakai di production. Production pakai MultiModalDataSource.
-  2. SmartRouteOptimizer — menerima SearchCriteria, memanggil data_source,
-     menggabungkan segmen jadi RouteCombo (langsung + multi-modal),
-     menghitung metrik, memberi flag cheapest/fastest, sorting via
-     weighted score (0.6 × harga + 0.4 × durasi), return OptimizerResult.
+  SmartRouteOptimizer — menerima SearchCriteria, memanggil data_source,
+  menggabungkan segmen jadi RouteCombo (langsung + multi-modal),
+  menghitung metrik, memberi flag cheapest/fastest, sorting via
+  weighted score (0.6 × harga + 0.4 × durasi), return OptimizerResult.
 
 Pemilihan data_source:
     Production : MultiModalDataSource(...)
-    Testing    : DummyDataGenerator(seed=42)
 
 Optional first-mile / last-mile (stub):
     optimizer = SmartRouteOptimizer(
@@ -22,9 +19,7 @@ Optional first-mile / last-mile (stub):
     )
 """
 
-import random
 import time
-from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from models import (
@@ -171,117 +166,6 @@ def _normalize_key(a: str, b: str) -> Tuple[str, str]:
         return (b_canon, a_canon)
     return (a_canon, b_canon)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  DUMMY DATA GENERATOR (untuk unit test, BUKAN production)
-# ══════════════════════════════════════════════════════════════════════════════
-class DummyDataGenerator:
-    """
-    Menghasilkan TransportSegment palsu yang realistis untuk testing.
-    Interface identik dengan MultiModalDataSource → optimizer tidak peduli
-    siapa yang melayani.
-    """
-
-    def __init__(self, seed: Optional[int] = None):
-        self._rng = random.Random(seed)
-        self._counter = 0
-
-    def get_segments(
-        self,
-        origin: str,
-        destination: str,
-        date_str: str,
-        passengers: int = 1,
-        modes: Optional[List[str]] = None,
-    ) -> List[TransportSegment]:
-        if modes is None:
-            modes = ["flight", "train", "bus"]
-
-        segments: List[TransportSegment] = []
-        base_date = datetime.strptime(date_str, "%Y-%m-%d")
-        key = _normalize_key(origin, destination)
-
-        for mode in modes:
-            if not self._mode_available(mode, origin, destination):
-                continue
-
-            price_range = self._get_price_range(key, mode)
-            dur_range   = self._get_duration_range(key, mode)
-            operators   = self._get_operators(mode)
-
-            n_options = self._rng.randint(4, 7)   # Lebih banyak segmen per moda → peluang multimodal lebih tinggi
-            for _ in range(n_options):
-                seg = self._make_segment(
-                    mode, origin, destination, base_date,
-                    price_range, dur_range, operators, passengers,
-                )
-                segments.append(seg)
-
-        segments.sort(key=lambda s: s.departure_time)
-        return segments
-
-    # ── private helpers ──────────────────────────────────────────────────────
-
-    def _next_id(self, prefix: str = "SEG") -> str:
-        self._counter += 1
-        return f"{prefix}-{self._counter:04d}"
-
-    def _mode_available(self, mode: str, origin: str, destination: str) -> bool:
-        if mode == "flight":
-            return origin in FLIGHT_CITIES and destination in FLIGHT_CITIES
-        if mode == "train":
-            return origin in TRAIN_CITIES and destination in TRAIN_CITIES
-        jawa = {"Jakarta", "Bandung", "Semarang", "Yogyakarta", "Solo", "Surabaya", "Malang"}
-        if origin in jawa and destination in jawa:
-            return True
-        return (origin, destination) in {("Surabaya", "Bali"), ("Bali", "Surabaya")}
-
-    def _get_price_range(self, key: Tuple[str, str], mode: str) -> Tuple[int, int]:
-        table = ROUTE_PRICE_TABLE.get(key, {})
-        if mode in table:
-            return table[mode]
-        base = self._rng.randint(200_000, 600_000)
-        mult = {"flight": 1.5, "train": 1.0, "bus": 0.6}.get(mode, 1.0)
-        return (int(base * mult * 0.7), int(base * mult * 1.3))
-
-    def _get_duration_range(self, key: Tuple[str, str], mode: str) -> Tuple[int, int]:
-        table = ROUTE_DURATION_TABLE.get(key, {})
-        if mode in table:
-            return table[mode]
-        base = self._rng.randint(120, 480)
-        mult = {"flight": 0.4, "train": 1.0, "bus": 1.4}.get(mode, 1.0)
-        return (int(base * mult * 0.8), int(base * mult * 1.2))
-
-    def _get_operators(self, mode: str):
-        return {"flight": FLIGHT_OPERATORS, "train": TRAIN_OPERATORS, "bus": BUS_OPERATORS}[mode]
-
-    def _make_segment(
-        self, mode, origin, destination, base_date,
-        price_range, dur_range, operators, passengers,
-    ) -> TransportSegment:
-        provider, code, base_rating = self._rng.choice(operators)
-        dep_hour   = self._rng.randint(5, 22)
-        dep_minute = self._rng.choice([0, 10, 15, 20, 30, 40, 45, 50])
-        departure  = base_date.replace(hour=dep_hour, minute=dep_minute, second=0, microsecond=0)
-        duration   = self._rng.randint(*dur_range)
-        arrival    = departure + timedelta(minutes=duration)
-        price      = round(self._rng.randint(*price_range) / 1000) * 1000
-        rating     = round(min(5.0, max(1.0, base_rating + self._rng.uniform(-0.3, 0.3))), 1)
-        seats      = self._rng.randint(passengers, passengers + 50)
-        seat_class = self._rng.choice(
-            {"flight": ["Economy", "Business"],
-             "train":  ["Economy", "Executive", "Business"],
-             "bus":    ["Reguler", "Executive", "VIP"]}[mode]
-        )
-        return TransportSegment(
-            id=self._next_id(), mode=mode, provider=provider, provider_code=code,
-            origin=origin, destination=destination,
-            departure_time=departure, arrival_time=arrival,
-            duration_minutes=duration, price=price,
-            seat_class=seat_class, available_seats=seats, rating=rating,
-        )
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  SMART ROUTE OPTIMIZER
 # ══════════════════════════════════════════════════════════════════════════════
@@ -313,9 +197,7 @@ class SmartRouteOptimizer:
     ):
         if data_source is None:
             raise ValueError(
-                "data_source wajib diisi. "
-                "Pakai MultiModalDataSource() untuk data nyata, "
-                "atau DummyDataGenerator() untuk testing."
+                "data_source wajib diisi. Pakai MultiModalDataSource() untuk data nyata."
             )
         self.data_source       = data_source
         self.max_transits      = max_transits
@@ -604,18 +486,55 @@ class SmartRouteOptimizer:
 #  QUICK-TEST  (jalankan: python -m engine.optimizer)
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
+    import sys
+    import os
+
+    # Tambah root project ke path agar import config & engine berjalan
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+    from config import SCRAPER_TIMEOUT, SCRAPER_HEADLESS, SCRAPER_ENABLED_MODES, CACHE_TTL_MINUTES
+    from database import DatabaseManager
+    from engine.data_source import MultiModalDataSource
+
     print("=" * 60)
-    print("  ANTARA — Smart Route Optimizer  (Demo dengan DummyDataGenerator)")
+    print("  ANTARA — Smart Route Optimizer  (Live via MultiModalDataSource)")
     print("=" * 60)
 
+    # Ambil argumen opsional dari command line:
+    #   python -m engine.optimizer [origin] [destination] [YYYY-MM-DD] [passengers]
+    # Default: Jakarta → Surabaya, hari ini, 1 penumpang
+    from datetime import date as _date
+    _origin      = sys.argv[1] if len(sys.argv) > 1 else "Jakarta"
+    _destination = sys.argv[2] if len(sys.argv) > 2 else "Surabaya"
+    _date_str    = sys.argv[3] if len(sys.argv) > 3 else _date.today().isoformat()
+    _passengers  = int(sys.argv[4]) if len(sys.argv) > 4 else 1
+
+    print(f"  Rute      : {_origin} → {_destination}")
+    print(f"  Tanggal   : {_date_str}")
+    print(f"  Penumpang : {_passengers}")
+    print(f"  Timeout   : {SCRAPER_TIMEOUT}s  |  Headless: {SCRAPER_HEADLESS}")
+    print(f"  Moda      : {', '.join(SCRAPER_ENABLED_MODES)}")
+    print("=" * 60)
+
+    _db = DatabaseManager()
+    _ds = MultiModalDataSource(
+        headless=SCRAPER_HEADLESS,
+        timeout=SCRAPER_TIMEOUT,
+        enabled_modes=SCRAPER_ENABLED_MODES,
+        db=_db,
+        cache_ttl_minutes=CACHE_TTL_MINUTES,
+    )
+
     criteria = SearchCriteria(
-        origin="Jakarta", destination="Surabaya",
-        departure_date="2026-05-15", passengers=2,
-        transport_modes=["flight", "train", "bus"],
+        origin=_origin,
+        destination=_destination,
+        departure_date=_date_str,
+        passengers=_passengers,
+        transport_modes=SCRAPER_ENABLED_MODES,
         max_results=15,
     )
     optimizer = SmartRouteOptimizer(
-        data_source=DummyDataGenerator(seed=42),
+        data_source=_ds,
         max_transits=2,
     )
     result = optimizer.optimize(criteria)
