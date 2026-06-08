@@ -6,6 +6,9 @@ Daftar rute yang disimpan user.
 
 import streamlit as st
 import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from database import DatabaseManager
 from pages.components.sidebar import render_sidebar
 from pages.components.theme import apply_theme
 
@@ -66,7 +69,24 @@ DEFAULT_ROUTES = [
     },
 ]
 
-saved_routes = st.session_state.get("saved_routes", DEFAULT_ROUTES)
+user_id = st.session_state.get("user", {}).get("id")
+db = DatabaseManager()
+db_rows = db.get_saved_routes(user_id=user_id)
+
+# Restore display dict dari combo_json yang disimpan result.py
+import json as _json
+saved_routes = []
+for row in db_rows:
+    try:
+        display = _json.loads(row["combo_json"])
+        display["_db_id"] = row["id"]  # buat tombol delete nanti
+        saved_routes.append(display)
+    except Exception:
+        continue
+
+# Fallback ke DEFAULT_ROUTES cuma kalau belum ada user_id (mode demo)
+if not user_id and not saved_routes:
+    saved_routes = DEFAULT_ROUTES
 
 # ── SIDEBAR ──────────────────────────────────────────────────
 render_sidebar(active="favorites")

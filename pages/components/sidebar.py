@@ -64,7 +64,7 @@ def render_sidebar(active: str = ""):
         st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
 
         if st.button("🚪  Logout", key="sb_logout", use_container_width=True):
-            st.session_state.logged_in = False
+            st.session_state.clear()
             st.switch_page("app.py")
 
         # ── USER BADGE (bottom) ───────────────────────

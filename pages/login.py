@@ -7,6 +7,10 @@ Halaman login.
 import streamlit as st
 import os
 
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from database import DatabaseManager
+
 st.set_page_config(page_title="Login — ANTARA", layout="centered")
 
 # ── CSS ──────────────────────────────────────────────────────
@@ -43,20 +47,29 @@ with c_mid:
         st.markdown('<div class="spacer-sm"></div>', unsafe_allow_html=True)
 
         if st.button("Sign In", use_container_width=True):
-            # Demo credentials
-            if email == "admin@antara.com" and password == "123":
-                st.session_state.logged_in = True
-                st.session_state.user = {
-                    "name":     "Admin ANTARA",
-                    "email":    email,
-                    "phone":    "+62 812-3456-7890",
-                    "location": "Jakarta, Indonesia",
-                    "password": password,
-                }
-                st.success("Login berhasil! Redirecting...")
-                st.switch_page("pages/dashboard.py")
+            if not email or not password:
+                st.error("Email dan password wajib diisi.")
             else:
-                st.error("Email atau password salah.")
+                db = DatabaseManager()
+                user = db.get_user_by_email(email.strip(), password)
+
+                # Fallback demo credentials (biar ga break demo)
+                if user is None and email == "admin@antara.com" and password == "123":
+                    user = {
+                        "id":       None,
+                        "name":     "Admin ANTARA",
+                        "email":    email,
+                        "phone":    "+62 812-3456-7890",
+                        "location": "Jakarta, Indonesia",
+                    }
+
+                if user is not None:
+                    st.session_state.logged_in = True
+                    st.session_state.user = user
+                    st.success("Login berhasil! Redirecting...")
+                    st.switch_page("pages/dashboard.py")
+                else:
+                    st.error("Email atau password salah.")
 
         st.markdown('<div class="spacer-sm"></div>', unsafe_allow_html=True)
 

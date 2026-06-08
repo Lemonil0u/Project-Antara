@@ -3,10 +3,10 @@ database/database.py — ANTARA Project
 =====================================
 Lapisan persistensi SQLite untuk ANTARA. Mengelola 5 tabel:
 
-  1. search_history    — riwayat pencarian + ringkasan rute terbaik (JSON)
-  2. user_preferences  — preferensi user (bahasa, currency, dark mode, dll)
-  3. price_cache       — cache hasil scrape agar tidak ulang scraping rute sama
-  4. saved_routes      — bookmark user atas rute favorit (CRUD)
+  1. search_history    — riwayat pencarian + ringkasan rute terbaik (JSON) [per-user]
+  2. user_preferences  — preferensi user (bahasa, currency, dark mode, dll) [global]
+  3. price_cache       — cache hasil scrape agar tidak ulang scraping rute sama [global]
+  4. saved_routes      — bookmark user atas rute favorit (CRUD) [per-user]
   5. users             — akun user (registrasi & login)
 
 Prinsip:
@@ -15,6 +15,7 @@ Prinsip:
   - JSON dipakai untuk menyimpan objek kompleks (RouteCombo) di kolom TEXT.
   - Semua method aman terhadap data hilang (tidak crash).
   - Password di-hash SHA-256 sebelum disimpan (tidak pernah plain-text).
+  - search_history & saved_routes nyantol ke user lewat kolom user_id.
 """
 
 import hashlib
@@ -39,10 +40,10 @@ class DatabaseManager:
         db = DatabaseManager()                  # pakai data/antara.db default
         db = DatabaseManager("custom.db")       # path custom
 
-        db.save_search_result(...)
-        history = db.get_search_history()
-        db.set_preference("dark_mode", True)
-        pref = db.get_preference("dark_mode", default=False)
+        db.save_search_result(..., user_id=42)
+        history = db.get_search_history(user_id=42)
+        db.add_saved_route(..., user_id=42)
+        db.delete_user_by_email("foo@bar.com")  # cascade ke history + saved_routes
     """
 
     def __init__(self, db_path: Optional[str] = None):
@@ -61,15 +62,24 @@ class DatabaseManager:
         conn.row_factory = sqlite3.Row
         return conn
 
+    @staticmethod
+    def _add_column_if_missing(cur, table: str, column: str, coltype: str) -> None:
+        """Helper migrasi: ALTER TABLE ADD COLUMN kalau kolom belum ada."""
+        cur.execute(f"PRAGMA table_info({table})")
+        cols = {row[1] for row in cur.fetchall()}
+        if column not in cols:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+
     def _init_schema(self) -> None:
-        """Buat semua tabel jika belum ada (idempotent)."""
+        """Buat semua tabel jika belum ada (idempotent) + migrasi user_id."""
         with self._connect() as conn:
             cur = conn.cursor()
 
-            # 1. Riwayat pencarian
+            # 1. Riwayat pencarian (per-user via user_id)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS search_history (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id     INTEGER,
                     origin      TEXT NOT NULL,
                     destination TEXT NOT NULL,
                     date        TEXT NOT NULL,
@@ -80,7 +90,7 @@ class DatabaseManager:
                 )
             """)
 
-            # 2. Preferensi user (key-value, JSON value)
+            # 2. Preferensi user (key-value, JSON value) — tetap global untuk sekarang
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS user_preferences (
                     key        TEXT PRIMARY KEY,
@@ -89,7 +99,7 @@ class DatabaseManager:
                 )
             """)
 
-            # 3. Price cache (hindari ulang scrape rute yang sama dalam window pendek)
+            # 3. Price cache (global, dipakai antar-user)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS price_cache (
                     cache_key   TEXT PRIMARY KEY,
@@ -102,10 +112,11 @@ class DatabaseManager:
                 )
             """)
 
-            # 4. Saved routes (bookmark user)
+            # 4. Saved routes (per-user via user_id)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS saved_routes (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id    INTEGER,
                     combo_id   TEXT NOT NULL,
                     route_label TEXT NOT NULL,
                     mode_label  TEXT NOT NULL,
@@ -130,6 +141,12 @@ class DatabaseManager:
                     created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # ── MIGRASI: tambah user_id ke DB lama yang belum punya kolom itu
+            # Kalau DB sudah fresh (baru dibikin), ini no-op karena kolomnya udah ada.
+            self._add_column_if_missing(cur, "search_history", "user_id", "INTEGER")
+            self._add_column_if_missing(cur, "saved_routes",   "user_id", "INTEGER")
+
             conn.commit()
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -144,39 +161,52 @@ class DatabaseManager:
         passengers: int,
         best_route_combo: Optional[Dict[str, Any]] = None,
         total_options: int = 0,
+        user_id: Optional[int] = None,
     ) -> int:
         """
         Simpan satu hasil pencarian. Kembalikan id baris baru.
 
         best_route_combo: dict apa pun yang JSON-serializable, biasanya
             ringkasan combo terbaik {"route": ..., "price": ..., ...}.
+        user_id: id user yang melakukan pencarian. None = ga ke-attach ke siapa-siapa.
         """
         combo_json = json.dumps(best_route_combo or {}, ensure_ascii=False)
         with self._connect() as conn:
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO search_history
-                    (origin, destination, date, passengers,
+                    (user_id, origin, destination, date, passengers,
                      best_route_combo_json, total_options)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (origin, destination, date, passengers, combo_json, total_options))
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (user_id, origin, destination, date, passengers,
+                  combo_json, total_options))
             conn.commit()
             return cur.lastrowid
 
-    def get_search_history(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Ambil riwayat pencarian terbaru (sorted DESC by searched_at)."""
+    def get_search_history(self, limit: int = 10,
+                           user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Ambil riwayat pencarian terbaru (sorted DESC by searched_at).
+        Jika user_id diberikan, filter hanya milik user itu.
+        """
         with self._connect() as conn:
             cur = conn.cursor()
-            cur.execute("""
-                SELECT id, origin, destination, date, passengers,
-                       best_route_combo_json, total_options, searched_at
-                FROM search_history
-                ORDER BY searched_at DESC
-                LIMIT ?
-            """, (limit,))
+            if user_id is not None:
+                cur.execute("""
+                    SELECT * FROM search_history
+                    WHERE user_id = ?
+                    ORDER BY searched_at DESC
+                    LIMIT ?
+                """, (user_id, limit))
+            else:
+                cur.execute("""
+                    SELECT * FROM search_history
+                    ORDER BY searched_at DESC
+                    LIMIT ?
+                """, (limit,))
             return [dict(row) for row in cur.fetchall()]
 
-    # Alias agar tetap kompatibel dengan kode lama yang panggil db.save_result / db.get_history
+    # Alias agar tetap kompatibel dengan kode lama
     def save_result(self, origin: str, destination: str, date: str,
                     best_route_combo: Dict[str, Any]) -> int:
         return self.save_search_result(
@@ -187,16 +217,19 @@ class DatabaseManager:
     def get_history(self, limit: int = 10) -> List[Dict[str, Any]]:
         return self.get_search_history(limit=limit)
 
-    def clear_search_history(self) -> int:
-        """Hapus semua riwayat. Kembalikan jumlah baris yang dihapus."""
+    def clear_search_history(self, user_id: Optional[int] = None) -> int:
+        """Hapus riwayat. Jika user_id diberikan, cuma milik user itu."""
         with self._connect() as conn:
             cur = conn.cursor()
-            cur.execute("DELETE FROM search_history")
+            if user_id is not None:
+                cur.execute("DELETE FROM search_history WHERE user_id = ?", (user_id,))
+            else:
+                cur.execute("DELETE FROM search_history")
             conn.commit()
             return cur.rowcount
 
     # ─────────────────────────────────────────────────────────────────────────
-    #  TABEL 2: USER PREFERENCES
+    #  TABEL 2: USER PREFERENCES (tetap global)
     # ─────────────────────────────────────────────────────────────────────────
 
     def set_preference(self, key: str, value: Any) -> None:
@@ -255,10 +288,7 @@ class DatabaseManager:
         mode: str,
         segments: List[Dict[str, Any]],
     ) -> None:
-        """
-        Simpan segmen hasil scrape ke cache.
-        segments: list of dict (sudah JSON-serializable).
-        """
+        """Simpan segmen hasil scrape ke cache."""
         key = self._cache_key(origin, destination, date, mode)
         seg_json = json.dumps(segments, ensure_ascii=False, default=str)
         with self._connect() as conn:
@@ -281,9 +311,7 @@ class DatabaseManager:
         mode: str,
         max_age_minutes: int = 60,
     ) -> Optional[List[Dict[str, Any]]]:
-        """
-        Ambil cache jika usianya ≤ max_age_minutes, else None.
-        """
+        """Ambil cache jika usianya ≤ max_age_minutes, else None."""
         key = self._cache_key(origin, destination, date, mode)
         with self._connect() as conn:
             cur = conn.cursor()
@@ -309,7 +337,7 @@ class DatabaseManager:
             return cur.rowcount
 
     # ─────────────────────────────────────────────────────────────────────────
-    #  TABEL 4: SAVED ROUTES (CRUD)
+    #  TABEL 4: SAVED ROUTES (CRUD, per-user)
     # ─────────────────────────────────────────────────────────────────────────
 
     def add_saved_route(
@@ -321,6 +349,7 @@ class DatabaseManager:
         total_duration_minutes: int,
         combo_data: Dict[str, Any],
         notes: str = "",
+        user_id: Optional[int] = None,
     ) -> int:
         """Tambah rute favorit. Kembalikan id baru."""
         combo_json = json.dumps(combo_data, ensure_ascii=False, default=str)
@@ -328,19 +357,25 @@ class DatabaseManager:
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO saved_routes
-                    (combo_id, route_label, mode_label,
-                     total_price, total_duration_minutes,
-                     combo_json, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (combo_id, route_label, mode_label,
+                    (user_id, combo_id, route_label, mode_label,
+                     total_price, total_duration_minutes, combo_json, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (user_id, combo_id, route_label, mode_label,
                   total_price, total_duration_minutes, combo_json, notes))
             conn.commit()
             return cur.lastrowid
 
-    def get_saved_routes(self) -> List[Dict[str, Any]]:
+    def get_saved_routes(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Ambil saved routes. Jika user_id diberikan, filter milik user itu."""
         with self._connect() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT * FROM saved_routes ORDER BY saved_at DESC")
+            if user_id is not None:
+                cur.execute(
+                    "SELECT * FROM saved_routes WHERE user_id = ? ORDER BY saved_at DESC",
+                    (user_id,),
+                )
+            else:
+                cur.execute("SELECT * FROM saved_routes ORDER BY saved_at DESC")
             return [dict(row) for row in cur.fetchall()]
 
     def update_saved_route_notes(self, route_id: int, notes: str) -> bool:
@@ -370,16 +405,40 @@ class DatabaseManager:
             conn.commit()
             return cur.rowcount > 0
 
-    def clear_saved_routes(self) -> int:
+    def clear_saved_routes(self, user_id: Optional[int] = None) -> int:
+        """Hapus saved routes. Jika user_id diberikan, cuma milik user itu."""
         with self._connect() as conn:
             cur = conn.cursor()
-            cur.execute("DELETE FROM saved_routes")
+            if user_id is not None:
+                cur.execute("DELETE FROM saved_routes WHERE user_id = ?", (user_id,))
+            else:
+                cur.execute("DELETE FROM saved_routes")
             conn.commit()
             return cur.rowcount
 
-    # ─────────────────────────────────────────────────────────────────────────
-    #  UTILITAS
-    # ─────────────────────────────────────────────────────────────────────────
+    def get_saved_route_by_combo(self, combo_id: str,
+                                 user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """Cek apakah route ini udah disave oleh user. Buat toggle."""
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT * FROM saved_routes
+                WHERE combo_id = ? AND (user_id IS ? OR user_id = ?)
+            """, (combo_id, user_id, user_id))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def delete_saved_route_by_combo(self, combo_id: str,
+                                    user_id: Optional[int] = None) -> bool:
+        """Hapus saved route berdasarkan combo_id + user_id."""
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                DELETE FROM saved_routes
+                WHERE combo_id = ? AND (user_id IS ? OR user_id = ?)
+            """, (combo_id, user_id, user_id))
+            conn.commit()
+            return cur.rowcount > 0
 
     # ─────────────────────────────────────────────────────────────────────────
     #  TABEL 5: USERS
@@ -445,6 +504,24 @@ class DatabaseManager:
             cur.execute("SELECT 1 FROM users WHERE email = ?", (email.lower(),))
             return cur.fetchone() is not None
 
+    def delete_user_by_email(self, email: str) -> bool:
+        """Hapus user + semua search history & saved routes miliknya."""
+        with self._connect() as conn:
+            cur = conn.cursor()
+            # Cari id dulu
+            cur.execute("SELECT id FROM users WHERE email = ?", (email.lower(),))
+            row = cur.fetchone()
+            if row is None:
+                return False
+            user_id = row["id"]
+
+            # Cascade manual (SQLite ga ada FK default-on)
+            cur.execute("DELETE FROM search_history WHERE user_id = ?", (user_id,))
+            cur.execute("DELETE FROM saved_routes WHERE user_id = ?", (user_id,))
+            cur.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            conn.commit()
+            return True
+
     def __repr__(self) -> str:
         return f"DatabaseManager(db_path='{self.db_path}')"
 
@@ -458,6 +535,11 @@ if __name__ == "__main__":
     db = DatabaseManager("data/_smoke_test.db")
     print(db)
 
+    # Register test user
+    user = db.register_user("Test User", "test@example.com", "password123", phone="081234567890")
+    test_uid = user["id"]
+    print(f"\nRegistered user id={test_uid}")
+
     # Search history
     db.save_search_result(
         origin="Jakarta", destination="Surabaya",
@@ -465,23 +547,10 @@ if __name__ == "__main__":
         best_route_combo={"route": "Jakarta → Surabaya",
                           "price": "Rp 350.000", "duration": "8j 30m"},
         total_options=12,
+        user_id=test_uid,
     )
-    history = db.get_search_history()
-    print(f"\nHistory rows: {len(history)}")
-    print(f"  First row: {history[0]['origin']} → {history[0]['destination']}")
-
-    # Preferences
-    db.set_preference("dark_mode", True)
-    db.set_preference("language", "Indonesian")
-    print(f"\nPreferences: {db.get_all_preferences()}")
-
-    # Cache
-    db.cache_segments(
-        "Jakarta", "Surabaya", "2026-05-15", "train",
-        segments=[{"provider": "Argo Bromo", "price": 350000}],
-    )
-    cached = db.get_cached_segments("Jakarta", "Surabaya", "2026-05-15", "train")
-    print(f"\nCached segments: {cached}")
+    history = db.get_search_history(user_id=test_uid)
+    print(f"\nHistory rows for user {test_uid}: {len(history)}")
 
     # Saved routes
     sid = db.add_saved_route(
@@ -492,14 +561,19 @@ if __name__ == "__main__":
         total_duration_minutes=510,
         combo_data={"foo": "bar"},
         notes="weekend trip",
+        user_id=test_uid,
     )
-    saved = db.get_saved_routes()
-    print(f"\nSaved routes: {len(saved)}")
-    print(f"  ID {sid}: {saved[0]['route_label']} — notes: '{saved[0]['notes']}'")
+    saved = db.get_saved_routes(user_id=test_uid)
+    print(f"\nSaved routes for user {test_uid}: {len(saved)}")
+    print(f"  ID {sid}: {saved[0]['route_label']}")
 
-    db.toggle_starred(sid)
-    print(f"  After star: starred={db.get_saved_routes()[0]['starred']}")
+    # Delete user → cascade
+    db.delete_user_by_email("test@example.com")
+    print(f"\nAfter delete:")
+    print(f"  History rows: {len(db.get_search_history(user_id=test_uid))}")
+    print(f"  Saved routes: {len(db.get_saved_routes(user_id=test_uid))}")
+    print(f"  User exists: {db.email_exists('test@example.com')}")
 
-    # Cleanup smoke test db
+    # Cleanup
     Path("data/_smoke_test.db").unlink(missing_ok=True)
     print("\n✓ Smoke test passed, cleaned up.")

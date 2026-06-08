@@ -6,21 +6,15 @@ Halaman profil user: data pribadi, aktivitas, preferensi.
 
 import streamlit as st
 import os
+import sys
 from pages.components.sidebar import render_sidebar
 from pages.components.theme import apply_theme
+from database import DatabaseManager
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 st.set_page_config(page_title="Profile — ANTARA", layout="wide")
 
 # ── STATE ────────────────────────────────────────────────────
-if "user" not in st.session_state:
-    st.session_state.user = {
-        "name":     "Admin ANTARA",
-        "email":    "admin@antara.com",
-        "phone":    "+62 812-3456-7890",
-        "location": "Jakarta, Indonesia",
-        "password": "123",
-    }
-
 if "theme_mode" not in st.session_state:
     st.session_state.theme_mode = "Light"
 
@@ -86,11 +80,19 @@ with act_col:
 
         st.markdown('<div class="spacer-md"></div>', unsafe_allow_html=True)
 
+        user_id = st.session_state.get("user", {}).get("id")
+        db = DatabaseManager()
+
+        _history       = db.get_search_history(limit=10000, user_id=user_id)
+        _saved         = db.get_saved_routes(user_id=user_id)
+        _favorites     = [r for r in _saved if r.get("starred", 0) == 1]
+        _total_minutes = sum(r.get("total_duration_minutes", 0) or 0 for r in _saved)
+
         ACTIVITIES = [
-            ("🗺️", "12", "Routes\nSearched"),
-            ("🔖",  "5",  "Routes\nSaved"),
-            ("⭐",  "3",  "Favorite\nRoutes"),
-            ("🕒",  "28", "Hours\nSaved"),
+            ("🗺️", str(len(_history)),        "Routes\nSearched"),
+            ("🔖",  str(len(_saved)),          "Routes\nSaved"),
+            ("⭐",  str(len(_favorites)),      "Favorite\nRoutes"),
+            ("🕒",  str(_total_minutes // 60), "Hours\nSaved"),
         ]
 
         cols = st.columns(4)

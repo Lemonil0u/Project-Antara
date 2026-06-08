@@ -8,6 +8,7 @@ import base64
 import streamlit as st
 import time
 import os
+import json
 from pages.components.sidebar import render_sidebar
 from pages.components.theme import apply_theme
 
@@ -121,10 +122,10 @@ def get_route_identity(route, origin_from, origin_to):
 
 
 def get_saved_route_ids():
-    return {
-        get_route_identity(route, route.get("from", ""), route.get("to", ""))
-        for route in st.session_state.get("saved_routes", [])
-    }
+    from database import DatabaseManager
+    user_id = st.session_state.get("user", {}).get("id")
+    rows = DatabaseManager().get_saved_routes(user_id=user_id)
+    return {row["combo_id"] for row in rows}
 
 # ── HERO ─────────────────────────────────────────────────────
 st.markdown("""
@@ -464,7 +465,7 @@ with c_results:
     else:
         for idx, item in enumerate(filtered):
             color = COLOR_MAP.get(item["type"], "#26a69a")
-            is_saved = get_route_identity(item, from_city, to_city) in saved_route_ids
+            is_saved = json.dumps(get_route_identity(item, from_city, to_city)) in saved_route_ids
             saved_badge = '<span style="color:#f59e0b; font-size:16px; margin-left:8px;">★</span>' if is_saved else ""
 
             card_col, btn_col = st.columns([5, 1])

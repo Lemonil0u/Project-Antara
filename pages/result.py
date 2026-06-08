@@ -5,12 +5,17 @@ Detail rute yang dipilih + peta + amenities.
 """
 
 import os
+import json
 
 import streamlit as st
 import streamlit.components.v1 as components
 
 from pages.components.sidebar import render_sidebar
 from pages.components.theme import apply_theme
+
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from database import DatabaseManager
 
 st.set_page_config(page_title="Route Detail - ANTARA", layout="wide")
 
@@ -27,6 +32,9 @@ to_city = st.session_state.get("selected_to", "")
 origin_page = st.session_state.get("route_origin_page", "pages/dashboard.py")
 origin_label = st.session_state.get("route_origin_label", "Results")
 
+def get_combo_id_str(route, origin_from, origin_to):
+    """Versi string dari route identity, buat disimpan di DB."""
+    return json.dumps(get_route_identity(route, origin_from, origin_to))
 
 def get_route_identity(route_data, origin_from, origin_to):
     return (
@@ -56,26 +64,31 @@ def build_saved_route(route_data, origin_from, origin_to):
 
 def toggle_saved_route():
     current_route = st.session_state.get("selected_route")
-    current_from = st.session_state.get("selected_from", "")
-    current_to = st.session_state.get("selected_to", "")
-    saved_routes = st.session_state.get("saved_routes", []).copy()
-    route_id = get_route_identity(current_route, current_from, current_to)
+    current_from  = st.session_state.get("selected_from", "")
+    current_to    = st.session_state.get("selected_to", "")
+    if not current_route:
+        return
 
-    existing_index = next(
-        (
-            index
-            for index, saved_route in enumerate(saved_routes)
-            if get_route_identity(saved_route, saved_route.get("from", ""), saved_route.get("to", "")) == route_id
-        ),
-        None,
-    )
+    user_id  = st.session_state.get("user", {}).get("id")
+    combo_id = get_combo_id_str(current_route, current_from, current_to)
+    route    = build_saved_route(current_route, current_from, current_to)
 
-    if existing_index is None:
-        saved_routes.append(build_saved_route(current_route, current_from, current_to))
+    db = DatabaseManager()
+    if db.get_saved_route_by_combo(combo_id, user_id=user_id):
+        # Sudah tersimpan → hapus
+        db.delete_saved_route_by_combo(combo_id, user_id=user_id)
     else:
-        saved_routes.pop(existing_index)
-
-    st.session_state.saved_routes = saved_routes
+        # Belum tersimpan → tambah. Simpan FULL display dict di combo_json
+        # biar UI nanti bisa restore tampilan persis (icon, color, bg, dll)
+        db.add_saved_route(
+            combo_id=combo_id,
+            route_label=f"{current_from} → {current_to}",
+            mode_label=route.get("type", ""),
+            total_price=route.get("price_raw", 0),
+            total_duration_minutes=0,  # belum ada di session, isi 0 dulu
+            combo_data=route,
+            user_id=user_id,
+        )
 
 if not route:
     st.warning("Silakan pilih route terlebih dahulu.")
@@ -84,10 +97,9 @@ if not route:
     st.stop()
 
 departure, arrival = route["time"].split(" - ") if " - " in route.get("time", " - ") else ("-", "-")
-is_saved = any(
-    get_route_identity(saved_route, saved_route.get("from", ""), saved_route.get("to", "")) == get_route_identity(route, from_city, to_city)
-    for saved_route in st.session_state.get("saved_routes", [])
-)
+user_id = st.session_state.get("user", {}).get("id")
+_combo_id = get_combo_id_str(route, from_city, to_city)
+is_saved = DatabaseManager().get_saved_route_by_combo(_combo_id, user_id=user_id) is not None
 
 # SIDEBAR
 render_sidebar()
