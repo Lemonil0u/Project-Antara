@@ -6,8 +6,11 @@ Pengaturan akun, password, preferensi, dan tampilan.
 
 import streamlit as st
 import os
+import sys
 from pages.components.sidebar import render_sidebar
 from pages.components.theme import apply_theme
+from database import DatabaseManager
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 st.set_page_config(page_title="Settings — ANTARA", layout="wide")
 
@@ -16,13 +19,6 @@ if not st.session_state.get("logged_in", False):
     st.switch_page("pages/login.py")
 
 # ── STATE ────────────────────────────────────────────────────
-if "user" not in st.session_state:
-    st.session_state.user = {
-        "name": "Admin ANTARA",
-        "email": "admin@antara.com",
-        "phone": "+62 812-3456-7890",
-        "password": "123",
-    }
 if "theme_mode"    not in st.session_state:
     st.session_state.theme_mode = "Light"
 if "edit_profile"  not in st.session_state:
@@ -155,12 +151,42 @@ with st.container(border=True):
 st.markdown('<div class="spacer-md"></div>', unsafe_allow_html=True)
 
 # ── DANGER ZONE ───────────────────────────────────────────────
+if "confirm_delete" not in st.session_state:
+    st.session_state.confirm_delete = False
+
 with st.container(border=True):
     dl, dr = st.columns([4, 1])
     with dl:
-        st.markdown("<p style='font-family:Plus Jakarta Sans,sans-serif; font-size:17px; font-weight:700; color:#ef4444; margin-bottom:2px;'>🗑️ Delete Account</p>", unsafe_allow_html=True)
+        st.markdown(
+            "<p style='font-family:Plus Jakarta Sans,sans-serif; font-size:17px; "
+            "font-weight:700; color:#ef4444; margin-bottom:2px;'>🗑️ Delete Account</p>",
+            unsafe_allow_html=True,
+        )
         st.caption("Permanently remove your account and all saved data.")
     with dr:
         st.markdown('<div class="spacer-sm"></div>', unsafe_allow_html=True)
         if st.button("Delete Account", use_container_width=True, type="secondary"):
-            st.error("Delete account is disabled in demo mode.")
+            st.session_state.confirm_delete = True
+
+    # Konfirmasi dua langkah biar ga kepencet
+    if st.session_state.confirm_delete:
+        st.warning(
+            f"⚠️ Yakin mau hapus akun **{user['email']}**? "
+            "Aksi ini permanen dan tidak bisa dibatalkan."
+        )
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Ya, hapus akun saya", type="primary", use_container_width=True):
+                db = DatabaseManager()
+                ok = db.delete_user_by_email(user["email"])
+                if ok:
+                    # Bersihin SEMUA session state biar fresh
+                    st.session_state.clear()
+                    st.success("Akun berhasil dihapus.")
+                    st.switch_page("pages/login.py")
+                else:
+                    st.error("Gagal hapus akun. Email tidak ditemukan di database.")
+        with c2:
+            if st.button("Batal", use_container_width=True):
+                st.session_state.confirm_delete = False
+                st.rerun()
