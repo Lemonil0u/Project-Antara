@@ -21,7 +21,7 @@ SCRAPER_ENABLED_MODES: list[str] = ["train", "flight", "bus"]
 
 # ── QUICK SEARCH ──────────────────────────────────────────────────────────────
 
-QUICK_SEARCH_MAX_PER_MODE: int = 3
+QUICK_SEARCH_MAX_PER_MODE: int = 5
 
 # ── CACHE ─────────────────────────────────────────────────────────────────────
 
