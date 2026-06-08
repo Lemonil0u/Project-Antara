@@ -100,10 +100,12 @@ class PlaneScraper(BaseScraper):
         destination: str,
         date_str: str,
         passengers: int,
+        max_results: Optional[int] = None,
     ) -> List[TransportSegment]:
         """Sinkron wrapper — dipanggil oleh BaseScraper.get_segments()."""
         return asyncio.run(
-            self._scrape_async(origin, destination, date_str, passengers)
+            self._scrape_async(origin, destination, date_str, passengers,
+                               max_results=max_results)
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -116,6 +118,7 @@ class PlaneScraper(BaseScraper):
         destination: str,
         date_str: str,
         passengers: int,
+        max_results: Optional[int] = None,
     ) -> List[TransportSegment]:
         from playwright.async_api import async_playwright
 
@@ -196,9 +199,14 @@ class PlaneScraper(BaseScraper):
                         self.logger.warning(f"[PlaneScraper] Card {i+1} skip: {e}")
                         continue
 
-                # Deduplikasi
+                # Deduplikasi + early stop
                 seen = set()
                 for item in raw_items:
+                    if max_results and len(segments) >= max_results:
+                        self.logger.info(
+                            f"[PlaneScraper] Quick-stop: {len(segments)} rute cukup."
+                        )
+                        break
                     key = (
                         item["maskapai"],
                         item["jam_berangkat"],

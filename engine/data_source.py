@@ -134,10 +134,14 @@ class MultiModalDataSource:
         date_str: str,
         passengers: int = 1,
         modes: Optional[List[str]] = None,
+        max_results_per_mode: Optional[int] = None,
     ) -> List[TransportSegment]:
         """
         Ambil semua TransportSegment dari semua scraper yang relevan.
         
+        max_results_per_mode: batas per moda (None = semua). Diisi dari
+        QUICK_SEARCH_MAX_PER_MODE saat first-search, None saat refresh.
+
         Optimasi: scraping berjalan PARALEL menggunakan thread pool.
         Train + flight dijalankan bersamaan, jadi total waktu ≈ max(train, flight),
         bukan train + flight.
@@ -164,6 +168,9 @@ class MultiModalDataSource:
             cached = self._get_from_cache(origin, destination, date_str, mode)
             if cached is not None:
                 logger.info(f"[DataSource] {mode}: {len(cached)} segmen dari cache.")
+                # Terapkan limit juga pada hasil cache
+                if max_results_per_mode:
+                    cached = cached[:max_results_per_mode]
                 all_segments.extend(cached)
                 continue
 
@@ -175,13 +182,14 @@ class MultiModalDataSource:
             logger.info(
                 f"[DataSource] Scraping paralel: {[m for m, _ in scrape_tasks]} "
                 f"untuk {origin}→{destination} ({date_str})"
+                + (f" [quick: max {max_results_per_mode}/mode]" if max_results_per_mode else " [full]")
             )
             with ThreadPoolExecutor(max_workers=len(scrape_tasks)) as pool:
                 # Submit semua scraper ke thread pool
                 future_to_mode = {
                     pool.submit(
                         self._safe_scrape, scraper, origin, destination,
-                        date_str, passengers, mode,
+                        date_str, passengers, mode, max_results_per_mode,
                     ): mode
                     for mode, scraper in scrape_tasks
                 }
@@ -217,6 +225,7 @@ class MultiModalDataSource:
         date_str: str,
         passengers: int,
         mode: str,
+        max_results: Optional[int] = None,
     ) -> Optional[List[TransportSegment]]:
         """
         Wrapper aman untuk satu scraper call.
@@ -229,7 +238,7 @@ class MultiModalDataSource:
             return scraper.get_segments(
                 origin=origin, destination=destination,
                 date_str=date_str, passengers=passengers,
-                modes=[mode],
+                modes=[mode], max_results=max_results,
             )
         except NotImplementedError:
             logger.info(f"[DataSource] {mode}: scraper belum diimplementasi, skip.")

@@ -36,10 +36,12 @@ class TrainScraper(BaseScraper):
         destination: str,
         date_str: str,
         passengers: int,
+        max_results: Optional[int] = None,
     ) -> List[TransportSegment]:
         """Wrapper sinkron — memanggil _scrape_async via asyncio.run()."""
         return asyncio.run(
-            self._scrape_async(origin, destination, date_str, passengers)
+            self._scrape_async(origin, destination, date_str, passengers,
+                               max_results=max_results)
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -52,6 +54,7 @@ class TrainScraper(BaseScraper):
         destination: str,
         date_str: str,
         passengers: int,
+        max_results: Optional[int] = None,
     ) -> List[TransportSegment]:
         from playwright.async_api import async_playwright
 
@@ -127,9 +130,14 @@ class TrainScraper(BaseScraper):
                         self.logger.warning(f"[TrainScraper] Card {i+1} parse gagal: {e}")
                         continue
 
-                # Deduplikasi
+                # Deduplikasi + early stop
                 seen = set()
                 for item in raw_items:
+                    if max_results and len(segments) >= max_results:
+                        self.logger.info(
+                            f"[TrainScraper] Quick-stop: {len(segments)} rute cukup."
+                        )
+                        break
                     key = (
                         item["nama_kereta"], item["kelas"],
                         item["jam_berangkat"], item["jam_tiba"], item["harga_raw"],

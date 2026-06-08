@@ -214,6 +214,7 @@ class SearchCriteria:
         default_factory=lambda: ["flight", "train", "bus"]
     )
     max_results: int = 20
+    max_results_per_mode: Optional[int] = None  # None = full, int = quick search
     include_local_legs: bool = False   # First-/last-mile (stub)
 
     def __post_init__(self):

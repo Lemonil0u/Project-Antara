@@ -84,10 +84,12 @@ class BusScraper(BaseScraper):
         destination: str,
         date_str: str,
         passengers: int,
+        max_results: Optional[int] = None,
     ) -> List[TransportSegment]:
         """Wrapper sinkron — dipanggil oleh BaseScraper.get_segments()."""
         return asyncio.run(
-            self._scrape_async(origin, destination, date_str, passengers)
+            self._scrape_async(origin, destination, date_str, passengers,
+                               max_results=max_results)
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -100,6 +102,7 @@ class BusScraper(BaseScraper):
         destination: str,
         date_str: str,
         passengers: int,
+        max_results: Optional[int] = None,
     ) -> List[TransportSegment]:
         from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
@@ -195,9 +198,14 @@ class BusScraper(BaseScraper):
                         self.logger.debug(f"[BusScraper] Card {i+1} error: {e}")
                         continue
 
-                # 🎯 STEP 5: Deduplikasi & Konversi ke Segment
+                # 🎯 STEP 5: Deduplikasi & Konversi ke Segment + early stop
                 seen = set()
                 for item in raw_items:
+                    if max_results and len(segments) >= max_results:
+                        self.logger.info(
+                            f"[BusScraper] Quick-stop: {len(segments)} rute cukup."
+                        )
+                        break
                     # Key unik: Operator + Jam Berangkat + Harga
                     key = (
                         item["operator"],

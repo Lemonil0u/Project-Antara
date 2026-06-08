@@ -17,7 +17,7 @@ from database import DatabaseManager
 from engine.data_source import MultiModalDataSource
 from engine.optimizer import SmartRouteOptimizer
 
-from config import SCRAPER_TIMEOUT, SCRAPER_HEADLESS, SCRAPER_ENABLED_MODES, CACHE_TTL_MINUTES
+from config import SCRAPER_TIMEOUT, SCRAPER_HEADLESS, SCRAPER_ENABLED_MODES, CACHE_TTL_MINUTES, QUICK_SEARCH_MAX_PER_MODE
 
 from models import SearchCriteria
 
@@ -92,11 +92,15 @@ with c:
     result_holder = {"result": None}
 
     def run_search():
+        # full_search=True berarti user klik Refresh → scrape lebih banyak (no limit)
+        _is_full = st.session_state.get("full_search", False)
+        _max_per = None if _is_full else QUICK_SEARCH_MAX_PER_MODE
         criteria = SearchCriteria(
             origin=origin,
             destination=destination,
             departure_date=departure_date,
             passengers=passengers,
+            max_results_per_mode=_max_per,
         )
         result_holder["result"] = optimizer.optimize(criteria)
 

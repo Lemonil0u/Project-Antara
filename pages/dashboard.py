@@ -328,6 +328,25 @@ with c_results:
     result = st.session_state.get("optimizer_result")
     TRANSPORT_DATA = []
 
+    # ── ACTION BUTTONS (Refresh + Cari Rute Lain) ─────────────
+    act_refresh, act_new = st.columns(2)
+    with act_refresh:
+        if st.button("🔄 Refresh Harga", use_container_width=True, type="secondary", key="btn_refresh"):
+            # Full search — hapus cache hasil, minta lebih banyak rute
+            st.session_state.pop("optimizer_result", None)
+            st.session_state["full_search"] = True
+            st.session_state.search_clicked = False
+            st.switch_page("pages/loading.py")
+    with act_new:
+        if st.button("🔍 Cari Tiket Lain", use_container_width=True, type="secondary", key="btn_new_search"):
+            # Reset semua state pencarian, balik ke form
+            for k in ["optimizer_result", "search_clicked", "origin", "destination",
+                      "departure_date", "full_search"]:
+                st.session_state.pop(k, None)
+            st.switch_page("app.py")
+
+    st.markdown('<div class="spacer-sm"></div>', unsafe_allow_html=True)
+
     if result and result.total_options > 0:
         for combo in result.all_combos:
             # Tentukan tipe transport dari moda utama
@@ -373,8 +392,53 @@ with c_results:
             })
     else:
         # Fallback: tidak ada hasil scraping
-        st.info("Tidak ada hasil ditemukan untuk rute ini. Coba ubah kota atau tanggal.")
+        st.markdown("""
+        <div style="background:#fff3cd; border:1px solid #ffc107; border-radius:12px;
+                    padding:16px 20px; margin-bottom:16px;">
+            <p style="margin:0; font-size:15px; color:#856404; font-weight:600;">
+                ⚠️ Tidak ada hasil ditemukan untuk rute ini.
+            </p>
+            <p style="margin:4px 0 0; font-size:13px; color:#856404;">
+                Coba refresh harga atau pilih rute lain.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
         st.stop()
+
+    # ── FOUND SUMMARY BANNER ───────────────────────────────────
+    _count_bus    = sum(1 for i in TRANSPORT_DATA if i["type"] == "Bus")
+    _count_train  = sum(1 for i in TRANSPORT_DATA if i["type"] == "Train")
+    _count_flight = sum(1 for i in TRANSPORT_DATA if i["type"] == "Flight")
+    _total        = len(TRANSPORT_DATA)
+    _is_full_search = st.session_state.get("full_search", False)
+
+    _parts = []
+    if _count_train:  _parts.append(f"🚆 {_count_train} Kereta")
+    if _count_flight: _parts.append(f"✈️ {_count_flight} Penerbangan")
+    if _count_bus:    _parts.append(f"🚌 {_count_bus} Bus")
+    _parts_str = " &nbsp;·&nbsp; ".join(_parts)
+    _mode_note = (
+        '<span style="font-size:11px; color:#64748b; margin-left:8px;">'
+        '(hasil lengkap)</span>' if _is_full_search else
+        '<span style="font-size:11px; color:#94a3b8; margin-left:8px;">'
+        '· Klik <b>Refresh Harga</b> untuk hasil lebih lengkap</span>'
+    )
+
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg,#e0f2fe,#f0fdf4); border:1px solid #bae6fd;
+                border-radius:14px; padding:14px 20px; margin-bottom:16px;
+                display:flex; align-items:center; gap:12px;">
+        <span style="font-size:22px;">✅</span>
+        <div>
+            <p style="margin:0; font-size:15px; font-weight:700; color:#1e2a52;">
+                Ditemukan {_total} rute untuk {_shown_from} → {_shown_to}
+            </p>
+            <p style="margin:2px 0 0; font-size:13px; color:#64748b;">
+                {_parts_str} {_mode_note}
+            </p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     # --- LOGIKA FILTER AIRLINES ---
     if st.session_state.airline_filter_mode == "Custom Selection":
@@ -489,7 +553,7 @@ with c_results:
                 # Sebelumnya pakai f"sel_{item['name']}" yang bisa duplicate kalau
                 # ada 2 combo dengan nama provider sama (e.g. 2 flight Citilink)
                 _unique_key = f"sel_{item.get('combo_id', 'unknown')}_{idx}"
-                if st.button("Select", key=_unique_key, use_container_width=True):
+                if st.button("View Details", key=_unique_key, use_container_width=True):
                     st.session_state.selected_route  = item
                     st.session_state.selected_from   = from_city
                     st.session_state.selected_to     = to_city

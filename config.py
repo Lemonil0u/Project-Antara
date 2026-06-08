@@ -19,6 +19,10 @@ SCRAPER_HEADLESS: bool = True
 # Mode transportasi yang diaktifkan.
 SCRAPER_ENABLED_MODES: list[str] = ["train", "flight", "bus"]
 
+# ── QUICK SEARCH ──────────────────────────────────────────────────────────────
+
+QUICK_SEARCH_MAX_PER_MODE: int = 3
+
 # ── CACHE ─────────────────────────────────────────────────────────────────────
 
 # Berapa menit hasil scraping disimpan di cache SQLite sebelum expired.

@@ -340,10 +340,13 @@ class SmartRouteOptimizer:
         date_str    = criteria.departure_date
         passengers  = criteria.passengers
         modes       = criteria.transport_modes
+        # max_results_per_mode: None = full search, int = quick search
+        max_per_mode = getattr(criteria, "max_results_per_mode", None)
 
         # ── Langkah 1: Kumpulkan segmen ──────────────────────────────────────
         direct_segs = self.data_source.get_segments(
-            origin, destination, date_str, passengers, modes
+            origin, destination, date_str, passengers, modes,
+            max_results_per_mode=max_per_mode,
         )
 
         transit_cities = self._find_transit_cities(origin, destination)
@@ -353,12 +356,14 @@ class SmartRouteOptimizer:
             key1 = (origin, city)
             if key1 not in transit_seg_map:
                 transit_seg_map[key1] = self.data_source.get_segments(
-                    origin, city, date_str, passengers, modes
+                    origin, city, date_str, passengers, modes,
+                    max_results_per_mode=max_per_mode,
                 )
             key2 = (city, destination)
             if key2 not in transit_seg_map:
                 transit_seg_map[key2] = self.data_source.get_segments(
-                    city, destination, date_str, passengers, modes
+                    city, destination, date_str, passengers, modes,
+                    max_results_per_mode=max_per_mode,
                 )
 
         # ── Langkah 2: Bangun RouteCombo ─────────────────────────────────────

@@ -84,9 +84,13 @@ class BaseScraper(ABC):
         date_str: str,
         passengers: int = 1,
         modes: Optional[List[str]] = None,
+        max_results: Optional[int] = None,
     ) -> List[TransportSegment]:
         """
         Ambil daftar TransportSegment untuk rute & tanggal tertentu.
+
+        max_results: batas maksimal segmen yang dikembalikan per moda.
+                     None = tidak ada limit (ambil semua di halaman).
 
         Interface ini identik dengan DummyDataGenerator.get_segments() dan
         MultiModalDataSource.get_segments() — optimizer tidak perlu tahu
@@ -100,9 +104,11 @@ class BaseScraper(ABC):
         if modes and self.MODE and self.MODE not in modes:
             return []
 
-        self.logger.info(f"Scraping {self.MODE}: {origin} → {destination} ({date_str})")
+        self.logger.info(f"Scraping {self.MODE}: {origin} → {destination} ({date_str})"
+                         + (f" [max {max_results}]" if max_results else ""))
         try:
-            segments = self._scrape(origin, destination, date_str, passengers)
+            segments = self._scrape(origin, destination, date_str, passengers,
+                                    max_results=max_results)
             self.logger.info(f"  ✓ {len(segments)} segmen ditemukan")
             return segments
         except NotImplementedError:
@@ -123,12 +129,12 @@ class BaseScraper(ABC):
         destination: str,
         date_str: str,
         passengers: int,
+        max_results: Optional[int] = None,
     ) -> List[TransportSegment]:
         """
         Inti scraping — implementasi per moda transportasi.
-
-        Boleh raise NotImplementedError jika belum diimplementasi
-        (akan di-handle oleh data_source dengan skip).
+        max_results: stop setelah menemukan N segmen unik (None = semua).
+        Boleh raise NotImplementedError jika belum diimplementasi.
         """
         ...
 
